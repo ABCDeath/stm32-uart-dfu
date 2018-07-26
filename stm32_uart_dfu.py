@@ -1,7 +1,13 @@
+import argparse
+import sys
+import time
+from queue import Queue
+from threading import Thread
+
 import serial
 
 
-class Stm32UartDfu:
+class Stm32UartDfu(object):
     __DEFAULT_PARAMETERS = {
         'baudrate': 115200,
         'parity': 'E',
@@ -188,6 +194,78 @@ class Stm32UartDfu:
         else:
             raise NotImplementedError
 
+
+class ProgressBar(object):
+    _BAR_MAX_LEN = 40
+    _ENDLESS_BAR_LEN = 20
+
+    def __init__(self, endless=False):
+        self._endless = endless
+        self._position = 0
+        self._bar_len = 0
+        self._reverse_direction = False
+
+    def _complete_len(self, progress):
+        return int(self._BAR_MAX_LEN * progress / 100)
+
+    def _incomplete_len(self, progress):
+        return self._BAR_MAX_LEN - self._complete_len(progress)
+
+    def _print(self, progress=None):
+        if progress == 100:
+            sys.stdout.write('\r[{}] done\r\n'.format('█' * self._BAR_MAX_LEN))
+        else:
+            if self._endless:
+                tail = self._BAR_MAX_LEN - self._bar_len - self._position
+                sys.stdout.write(
+                    '\r[{}{}{}] ...'.format(' ' * self._position,
+                                            '█' * self._bar_len, ' ' * tail))
+            else:
+                sys.stdout.write(
+                    '\r[{}{}] {}%'.format('█' * self._complete_len(progress),
+                                          ' ' * self._incomplete_len(progress),
+                                          progress))
+
+    def update(self, progress=None):
+        if self._endless:
+            if self._reverse_direction:
+                if self._position > 0:
+                    self._position -= 1
+                    if self._bar_len < self._ENDLESS_BAR_LEN:
+                        self._bar_len += 1
+                elif self._bar_len > 0:
+                    self._bar_len -= 1
+                else:
+                    self._reverse_direction = False
+            else:
+                if self._position == 0 and self._bar_len < self._ENDLESS_BAR_LEN:
+                    self._bar_len += 1
+                elif self._position + self._bar_len < self._BAR_MAX_LEN:
+                    self._position += 1
+                elif self._bar_len > 0:
+                    self._bar_len -= 1
+                    self._position += 1
+                else:
+                    self._reverse_direction = True
+
+        self._print(progress)
+
+
+class ProgressBarThread(Thread):
+    def __init__(self, progress_queue, endless=False):
+        super().__init__()
+        self._bar = ProgressBar(endless)
+        self._thread = Thread(target=self._run,
+                              kwargs={'progress_queue': progress_queue})
+        self._thread.start()
+
+    def _run(self, progress_queue):
+        while True:
+            progress = progress_queue.get()
+            self._bar.update(progress)
+            time.sleep(0.2)
+            if progress == 100:
+                break
 
 
 if __name__ == '__main__':
