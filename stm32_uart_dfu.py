@@ -294,7 +294,67 @@ class ProgressBarThread(Thread):
             if progress == 100:
                 break
 
+    def get_progress_queue(self):
+        return self._progress_queue
+
 
 if __name__ == '__main__':
     dfu = Stm32UartDfu('/dev/ttyUSB0')
 
+    arg_parser = argparse.ArgumentParser(description='Stm32 uart dfu utility.')
+    arg_parser.add_argument('-a', '--address', default='0x8000000')
+    arg_parser.add_argument('-f', '--file')
+    arg_parser.add_argument('-s', '--size', default=None)
+    arg_action = arg_parser.add_mutually_exclusive_group()
+    arg_action.add_argument('-e', '--erase', action='store_true')
+    arg_action.add_argument('-d', '--dump', action='store_true')
+    arg_action.add_argument('-l', '--load', action='store_true')
+    arg_action.add_argument('--mcu-id', action='store_true')
+
+    args = arg_parser.parse_args()
+
+    if args.mcu_id:
+        print('mcu id: 0x{}'.format(dfu.get_id().hex()))
+
+    if args.erase:
+        if args.size is not None:
+            print('erasing {} bytes from {}...'.format(args.size, args.address))
+        else:
+            print('erasing whole memory ...')
+
+        bar_thread = ProgressBarThread(endless=True)
+
+        dfu.erase(args.address, args.size, bar_thread.get_progress_queue())
+
+    if args.dump:
+        print('dumping {} bytes from {}...'.format(args.size, args.address))
+
+        bar_thread = ProgressBarThread()
+
+        file = open(args.file, 'wb')
+        file.write(dfu.read(int(args.address, 0), int(args.size, 0),
+                            bar_thread.get_progress_queue()))
+        file.close()
+
+    if args.load:
+        file = open(args.file, 'rb')
+        firmware = file.read()
+        file.close()
+
+        # TODO: erase only space enough for firmware size
+        print('erasing whole memory ...')
+
+        bar_thread = ProgressBarThread(endless=True)
+
+        dfu.erase(args.address, None, bar_thread.get_progress_queue())
+
+        # FIXME: somehow wait for the progressbar 'done'
+        time.sleep(1)
+
+        print('loading {} ({} bytes) at {}'.format(args.file, len(firmware),
+                                                   args.address))
+
+        bar_thread = ProgressBarThread()
+
+        dfu.write(int(args.address, 0), firmware,
+                  bar_thread.get_progress_queue())
