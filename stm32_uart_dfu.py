@@ -1,6 +1,7 @@
 import argparse
 import sys
 import time
+import zlib
 from queue import Empty
 from queue import Queue
 from threading import Thread
@@ -406,3 +407,13 @@ if __name__ == '__main__':
 
         dfu.write(int(args.address, 0), firmware,
                   bar_thread.get_progress_queue())
+
+        print('validating firmware')
+
+        dump = dfu.read(int(args.address, 0), len(firmware),
+                        bar_thread.get_progress_queue())
+
+        if zlib.crc32(firmware) != zlib.crc32(dump):
+            print('checksum mismatch')
+        else:
+            print('firmware is valid')
