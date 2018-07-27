@@ -1,6 +1,7 @@
 import argparse
 import sys
 import time
+from queue import Empty
 from queue import Queue
 from threading import Thread
 
@@ -15,10 +16,12 @@ class Stm32UartDfu(object):
     }
 
     __RESPONSE_SIZE = 1
+    __RW_MAX_SIZE = 256
+    __RETRY_MAX_NUM = 3
 
     __RESPONSE = {
         'ack': 0x79.to_bytes(length=1, byteorder='little'),
-        'nack': 0x7f.to_bytes(length=1, byteorder='little')
+        'nack': 0x1f.to_bytes(length=1, byteorder='little')
     }
 
     __COMMAND = {
@@ -54,7 +57,7 @@ class Stm32UartDfu(object):
             print('read timeout')
         else:
             if response != self.__RESPONSE['ack']:
-                print('dfu answered nack')
+                print('dfu answered nack (0x{})'.format(response.hex()))
         return response
 
     def _uart_dfu_init(self):
@@ -87,16 +90,22 @@ class Stm32UartDfu(object):
     def _send_command(self, command):
         command_sequence = [command, self._checksum(command)]
 
-        bytes_sent = self._port_handle.write(command_sequence)
-        if bytes_sent != len(command_sequence):
-            # TODO: use some exceptions
-            pass
+        for retry in range(0, self.__RETRY_MAX_NUM):
+            bytes_sent = self._port_handle.write(command_sequence)
+            if bytes_sent != len(command_sequence):
+                # TODO: use some exceptions
+                pass
 
-        self._receive_response()
+            if self._receive_response() == self.__RESPONSE['ack']:
+                break
+
+            self._port_handle.flushInput()
+            self._port_handle.flushOutput()
 
     def _set_address(self, address):
         self._port_handle.write(address.to_bytes(4, 'big'))
-        self._port_handle.write(self._checksum(address.to_bytes(4, 'big')))
+        checksum = self._checksum(address.to_bytes(4, 'big'))
+        self._port_handle.write(checksum.to_bytes(1, 'big'))
         self._receive_response()
 
     def get_id(self):
@@ -127,13 +136,16 @@ class Stm32UartDfu(object):
 
         return (version, read_protection_status)
 
-    def read(self, address, size):
-        __READ_CYCLE_MAX_SIZE = 256
+    def read(self, address, size, progress=None):
         size_remain = size
         data = bytearray()
 
         while size_remain > 0:
-            part_size = __READ_CYCLE_MAX_SIZE if size - size_remain > __READ_CYCLE_MAX_SIZE else size - size_remain
+            progress.queue.clear()
+            progress.put(int(100 * (size - size_remain) / size))
+
+            part_size = self.__RW_MAX_SIZE \
+                if size_remain > self.__RW_MAX_SIZE else size_remain
             offset = address + size - size_remain
 
             self._send_command(self.__COMMAND['read memory'])
@@ -149,39 +161,47 @@ class Stm32UartDfu(object):
 
             size_remain -= part_size
 
+        progress.put(100)
+
         return data
 
     def go(self, address):
         self._send_command(self.__COMMAND['go'])
         self._set_address(address)
 
-    def write(self, address, data):
-        __WRITE_CYCLE_MAX_SIZE = 256
+    def write(self, address, data, progress=None):
         size_remain = len(data)
 
         while size_remain > 0:
-            part_size = __WRITE_CYCLE_MAX_SIZE if len(
-                data) - size_remain > __WRITE_CYCLE_MAX_SIZE else len(
-                data) - size_remain
+            progress.queue.clear()
+            progress.put(int(100 * (len(data) - size_remain) / len(data)))
+
+            part_size = self.__RW_MAX_SIZE \
+                if size_remain > self.__RW_MAX_SIZE else size_remain
             offset = address + len(data) - size_remain
 
             self._send_command(self.__COMMAND['write memory'])
             self._set_address(offset)
 
             chunk = data[offset - address:offset - address + part_size]
-            checksum = part_size ^ self._checksum(chunk)
-            self._port_handle.write([part_size - 1, chunk, checksum])
+            checksum = 0xff & ((part_size - 1) ^ self._checksum(chunk))
+            self._port_handle.write((part_size - 1).to_bytes(1, 'big'))
+            self._port_handle.write(chunk)
+            self._port_handle.write(checksum.to_bytes(1, 'big'))
             self._receive_response()
 
             size_remain -= part_size
 
-    def erase(self, address, size=0):
+        progress.put(100)
+
+    def erase(self, address, size=None, progress=None):
         self._send_command(self.__COMMAND['extended erase'])
 
-        if size == 0:
+        if size is None:
             command_parameters = [0xff, 0xff, 0]
-            self._port_handle.write(
-                [command_parameters, self._checksum(command_parameters)])
+            command_parameters.append(self._checksum(command_parameters))
+
+            self._port_handle.write(command_parameters)
 
             port_settings = self._port_handle.getSettingsDict()
             port_settings['timeout'] = None
@@ -191,8 +211,15 @@ class Stm32UartDfu(object):
 
             port_settings['timeout'] = self.__DEFAULT_PARAMETERS['timeout']
             self._port_handle.applySettingsDict(port_settings)
+
+            # FIXME: without this byte every command is nacked
+            temp = 1
+            self._port_handle.write(temp.to_bytes(1, 'big'))
+            self._port_handle.read()
         else:
             raise NotImplementedError
+
+        progress.put(100)
 
 
 class ProgressBar(object):
