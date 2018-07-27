@@ -51,34 +51,39 @@ class Stm32UartDfu(object):
 
         return checksum
 
-    def _receive_response(self):
+    def _is_acknowledged(self):
         response = self._port_handle.read(1)
         if len(response) == 0:
+            # TODO: raise exception
             print('read timeout')
         else:
             if response != self.__RESPONSE['ack']:
                 print('dfu answered nack (0x{})'.format(response.hex()))
-        return response
+        return response == self.__RESPONSE['ack']
 
     def _uart_dfu_init(self):
         __INIT_SEQUENCE = [0x7f]
 
-        bytes_sent = self._port_handle.write(__INIT_SEQUENCE)
-        if bytes_sent != len(__INIT_SEQUENCE):
-            # TODO: use some exceptions
+        for retry in range(0, self.__RETRY_MAX_NUM):
+            bytes_sent = self._port_handle.write(__INIT_SEQUENCE)
+            if bytes_sent != len(__INIT_SEQUENCE):
+                # TODO: use some exceptions
+                pass
+
+            if self._is_acknowledged():
+                break
+        else:
+            # TODO: exception
             pass
 
-        self._receive_response()
-
     def __init__(self, port):
-        self._port_handle = serial.Serial(port=port,
-                                          baudrate=self.__DEFAULT_PARAMETERS[
-                                              'baudrate'],
-                                          parity=self.__DEFAULT_PARAMETERS[
-                                              'parity'],
-                                          timeout=self.__DEFAULT_PARAMETERS[
-                                              'timeout'])
+        self._port_handle = \
+            serial.Serial(port=port,
+                          baudrate=self.__DEFAULT_PARAMETERS['baudrate'],
+                          parity=self.__DEFAULT_PARAMETERS['parity'],
+                          timeout=self.__DEFAULT_PARAMETERS['timeout'])
         if not self._port_handle.isOpen():
+            # TODO: exception
             print('Can not open serial port.')
 
         self._uart_dfu_init()
@@ -96,45 +101,64 @@ class Stm32UartDfu(object):
                 # TODO: use some exceptions
                 pass
 
-            if self._receive_response() == self.__RESPONSE['ack']:
+            if self._is_acknowledged():
                 break
 
             self._port_handle.flushInput()
             self._port_handle.flushOutput()
+        else:
+            # TODO: raise exception
+            pass
 
     def _set_address(self, address):
-        self._port_handle.write(address.to_bytes(4, 'big'))
-        checksum = self._checksum(address.to_bytes(4, 'big'))
-        self._port_handle.write(checksum.to_bytes(1, 'big'))
-        self._receive_response()
+        for retry in range(0, self.__RETRY_MAX_NUM):
+            self._port_handle.write(address.to_bytes(4, 'big'))
+            checksum = self._checksum(address.to_bytes(4, 'big'))
+            self._port_handle.write(checksum.to_bytes(1, 'big'))
+            if self._is_acknowledged():
+                break
+        else:
+            # TODO: raise exception
+            pass
 
     def get_id(self):
-        self._send_command(self.__COMMAND['get id'])
+        for retry in range(0, self.__RETRY_MAX_NUM):
+            self._send_command(self.__COMMAND['get id'])
 
-        size = int.from_bytes(self._port_handle.read(1), 'little') + 1
-        pid = self._port_handle.read(size)
-
-        self._receive_response()
-
-        return pid
+            size = int.from_bytes(self._port_handle.read(1), 'little') + 1
+            pid = self._port_handle.read(size)
+            if self._is_acknowledged():
+                return pid
+        else:
+            # TODO: raise exception
+            pass
 
     def get_version(self):
-        self._send_command(self.__COMMAND['get version'])
+        for retry in range(0, self.__RETRY_MAX_NUM):
+            self._send_command(self.__COMMAND['get version'])
 
-        size = int.from_bytes(self._port_handle.read(1), 'little')
+            size = int.from_bytes(self._port_handle.read(1), 'little')
 
-        version = self._port_handle.read(1)
-        commands = self._port_handle.read(size)
-
-        return (version, commands)
+            version = self._port_handle.read(1)
+            commands = self._port_handle.read(size)
+            if self._is_acknowledged():
+                return (version, commands)
+        else:
+            # TODO: raise exception
+            pass
 
     def get_version_extended(self):
-        self._send_command(self.__COMMAND['get version and protection status'])
+        for retry in range(0, self.__RETRY_MAX_NUM):
+            self._send_command(
+                self.__COMMAND['get version and protection status'])
 
-        version = self._port_handle.read(1)
-        read_protection_status = self._port_handle.read(2)
-
-        return (version, read_protection_status)
+            version = self._port_handle.read(1)
+            read_protection_status = self._port_handle.read(2)
+            if self._is_acknowledged():
+                return (version, read_protection_status)
+        else:
+            # TODO: raise exception
+            pass
 
     def read(self, address, size, progress=None):
         size_remain = size
@@ -148,12 +172,17 @@ class Stm32UartDfu(object):
                 if size_remain > self.__RW_MAX_SIZE else size_remain
             offset = address + size - size_remain
 
-            self._send_command(self.__COMMAND['read memory'])
-            self._set_address(offset)
+            for retry in range(0, self.__RETRY_MAX_NUM):
+                self._send_command(self.__COMMAND['read memory'])
+                self._set_address(offset)
 
-            self._port_handle.write(
-                [part_size - 1, self._checksum(part_size - 1)])
-            self._receive_response()
+                self._port_handle.write(
+                    [part_size - 1, self._checksum(part_size - 1)])
+                if self._is_acknowledged():
+                    break
+            else:
+                # TODO: raise exception
+                pass
 
             chunk = self._port_handle.read(part_size)
             # TODO: check if chunk length < part_size
@@ -180,15 +209,21 @@ class Stm32UartDfu(object):
                 if size_remain > self.__RW_MAX_SIZE else size_remain
             offset = address + len(data) - size_remain
 
-            self._send_command(self.__COMMAND['write memory'])
-            self._set_address(offset)
+            for retry in range(0, self.__RETRY_MAX_NUM):
+                self._send_command(self.__COMMAND['write memory'])
+                self._set_address(offset)
 
-            chunk = data[offset - address:offset - address + part_size]
-            checksum = 0xff & ((part_size - 1) ^ self._checksum(chunk))
-            self._port_handle.write((part_size - 1).to_bytes(1, 'big'))
-            self._port_handle.write(chunk)
-            self._port_handle.write(checksum.to_bytes(1, 'big'))
-            self._receive_response()
+                chunk = data[offset - address:offset - address + part_size]
+                checksum = 0xff & ((part_size - 1) ^ self._checksum(chunk))
+                self._port_handle.write((part_size - 1).to_bytes(1, 'big'))
+                self._port_handle.write(chunk)
+                self._port_handle.write(checksum.to_bytes(1, 'big'))
+
+                if self._is_acknowledged():
+                    break
+            else:
+                # TODO: raise exception
+                pass
 
             size_remain -= part_size
 
@@ -201,16 +236,21 @@ class Stm32UartDfu(object):
             command_parameters = [0xff, 0xff, 0]
             command_parameters.append(self._checksum(command_parameters))
 
-            self._port_handle.write(command_parameters)
+            for retry in range(0, self.__RETRY_MAX_NUM):
+                self._port_handle.write(command_parameters)
 
-            port_settings = self._port_handle.getSettingsDict()
-            port_settings['timeout'] = None
-            self._port_handle.applySettingsDict(port_settings)
+                port_settings = self._port_handle.getSettingsDict()
+                port_settings['timeout'] = None
+                self._port_handle.applySettingsDict(port_settings)
 
-            self._receive_response()
-
-            port_settings['timeout'] = self.__DEFAULT_PARAMETERS['timeout']
-            self._port_handle.applySettingsDict(port_settings)
+                if self._is_acknowledged():
+                    port_settings['timeout'] = \
+                        self.__DEFAULT_PARAMETERS['timeout']
+                    self._port_handle.applySettingsDict(port_settings)
+                    break
+            else:
+                # TODO: raise exception
+                pass
 
             # FIXME: without this byte every command is nacked
             temp = 1
