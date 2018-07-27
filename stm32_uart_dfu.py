@@ -253,6 +253,9 @@ class ProgressBar(object):
                                           ' ' * self._incomplete_len(progress),
                                           progress))
 
+    def is_endless(self):
+        return self._endless
+
     def update(self, progress=None):
         if self._endless:
             if self._reverse_direction:
@@ -279,16 +282,21 @@ class ProgressBar(object):
 
 
 class ProgressBarThread(Thread):
-    def __init__(self, progress_queue, endless=False):
+    def __init__(self, endless=False):
         super().__init__()
         self._bar = ProgressBar(endless)
-        self._thread = Thread(target=self._run,
-                              kwargs={'progress_queue': progress_queue})
+        self._progress_queue = Queue()
+        self._thread = Thread(target=self._run)
         self._thread.start()
 
-    def _run(self, progress_queue):
+    def _run(self):
         while True:
-            progress = progress_queue.get()
+            try:
+                progress = self._progress_queue.get_nowait() \
+                    if self._bar.is_endless() else self._progress_queue.get()
+            except Empty:
+                progress = None
+
             self._bar.update(progress)
             time.sleep(0.2)
             if progress == 100:
