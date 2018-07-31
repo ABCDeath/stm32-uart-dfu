@@ -365,20 +365,26 @@ class ProgressBarThread(Thread):
 
 
 if __name__ == '__main__':
-    dfu = Stm32UartDfu('/dev/ttyUSB0')
-
     arg_parser = argparse.ArgumentParser(description='Stm32 uart dfu utility.')
-    arg_parser.add_argument('-a', '--address', default='0x8000000')
-    arg_parser.add_argument('-f', '--file')
-    arg_parser.add_argument('-s', '--size', default=None)
-    arg_parser.add_argument('-m', '--memory-map', default=None)
+    arg_parser.add_argument('-a', '--address', default='0x8000000',
+                            help='Start address for loading/dumping/erasing memory. Default: 0x8000000')
+    arg_parser.add_argument('-f', '--file',
+                            help='Input/output file (depends on operation).')
+    arg_parser.add_argument('-s', '--size', default=None,
+                            help='Required size of memory to be dumped or erase.')
+    arg_parser.add_argument('-m', '--memory-map', default=None,
+                            help='Json file, containing memory structure. Format: [{"address": "value", "size": "value"}, ...]')
     arg_action = arg_parser.add_mutually_exclusive_group()
     arg_action.add_argument('-e', '--erase', action='store_true')
     arg_action.add_argument('-d', '--dump', action='store_true')
-    arg_action.add_argument('-l', '--load', action='store_true')
-    arg_action.add_argument('--mcu-id', action='store_true')
+    arg_action.add_argument('-l', '--load', action='store_true',
+                            help='Load binary file at specified address (memory will be erased).')
+    arg_action.add_argument('--mcu-id', action='store_true',
+                            help='Print mcu id.')
 
     args = arg_parser.parse_args()
+
+    dfu = Stm32UartDfu('/dev/ttyUSB0')
 
     if args.mcu_id:
         print('mcu id: 0x{}'.format(dfu.get_id().hex()))
@@ -399,8 +405,6 @@ if __name__ == '__main__':
 
         dfu.erase(args.address, args.size, mem_map,
                   bar_thread.get_progress_queue())
-
-        print('mcu id: 0x{}'.format(dfu.get_id().hex()))
 
     if args.dump:
         print('dumping {} bytes from {}...'.format(args.size, args.address))
