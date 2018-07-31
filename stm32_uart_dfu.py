@@ -10,6 +10,13 @@ from threading import Thread
 import serial
 
 
+class DfuException(Exception):
+    def __init__(self, message=None):
+        if message is None:
+            message = 'An error occured in dfu.'
+            super().__init__(message)
+
+
 class Stm32UartDfu(object):
     __DEFAULT_PARAMETERS = {
         'baudrate': 115200,
@@ -56,8 +63,7 @@ class Stm32UartDfu(object):
     def _is_acknowledged(self):
         response = self._port_handle.read(1)
         if len(response) == 0:
-            # TODO: raise exception
-            print('read timeout')
+            raise DfuException('DFU did not send the answer.')
         else:
             if response != self.__RESPONSE['ack']:
                 print('dfu answered nack (0x{})'.format(response.hex()))
@@ -69,14 +75,16 @@ class Stm32UartDfu(object):
         for retry in range(0, self.__RETRY_MAX_NUM):
             bytes_sent = self._port_handle.write(__INIT_SEQUENCE)
             if bytes_sent != len(__INIT_SEQUENCE):
-                # TODO: use some exceptions
-                pass
+                raise DfuException('Serial port write error: tried to send {} '
+                                   'bytes, but {} was '
+                                   'sent.'.format(len(__INIT_SEQUENCE),
+                                                  bytes_sent))
 
             if self._is_acknowledged():
                 break
         else:
-            # TODO: exception
-            pass
+            raise DfuException('Dfu init failed after {} '
+                               'retries.'.format(retry + 1))
 
     def __init__(self, port):
         self._port_handle = \
@@ -85,8 +93,7 @@ class Stm32UartDfu(object):
                           parity=self.__DEFAULT_PARAMETERS['parity'],
                           timeout=self.__DEFAULT_PARAMETERS['timeout'])
         if not self._port_handle.isOpen():
-            # TODO: exception
-            print('Can not open serial port.')
+            raise DfuException('Serial port was not opened.')
 
         self._uart_dfu_init()
 
@@ -100,8 +107,10 @@ class Stm32UartDfu(object):
         for retry in range(0, self.__RETRY_MAX_NUM):
             bytes_sent = self._port_handle.write(command_sequence)
             if bytes_sent != len(command_sequence):
-                # TODO: use some exceptions
-                pass
+                raise DfuException('Serial port write error: tried to send {} '
+                                   'bytes, but {} was '
+                                   'sent.'.format(len(command_sequence),
+                                                  bytes_sent))
 
             if self._is_acknowledged():
                 break
@@ -109,19 +118,26 @@ class Stm32UartDfu(object):
             self._port_handle.flushInput()
             self._port_handle.flushOutput()
         else:
-            # TODO: raise exception
-            pass
+            raise DfuException(
+                'Command {} failed after '
+                '{} retries.'.format(hex(command), retry + 1))
 
     def _set_address(self, address):
         for retry in range(0, self.__RETRY_MAX_NUM):
-            self._port_handle.write(address.to_bytes(4, 'big'))
-            checksum = self._checksum(address.to_bytes(4, 'big'))
-            self._port_handle.write(checksum.to_bytes(1, 'big'))
+            sequence = bytearray(address.to_bytes(4, 'big'))
+            sequence.append(self._checksum(sequence))
+
+            bytes_sent = self._port_handle.write(sequence)
+            if bytes_sent != len(sequence):
+                raise DfuException(
+                    'Serial port write error: tried to'
+                    'send {} bytes, but {} was sent.'.format(
+                        len(sequence), bytes_sent))
             if self._is_acknowledged():
                 break
         else:
-            # TODO: raise exception
-            pass
+            raise DfuException('Setting address failed after {} '
+                               'retries.'.format(retry + 1))
 
     def get_id(self):
         for retry in range(0, self.__RETRY_MAX_NUM):
@@ -132,8 +148,8 @@ class Stm32UartDfu(object):
             if self._is_acknowledged():
                 return pid
         else:
-            # TODO: raise exception
-            pass
+            raise DfuException('Get id failed after {} '
+                               'retries.'.format(retry + 1))
 
     def get_version(self):
         for retry in range(0, self.__RETRY_MAX_NUM):
@@ -144,10 +160,10 @@ class Stm32UartDfu(object):
             version = self._port_handle.read(1)
             commands = self._port_handle.read(size)
             if self._is_acknowledged():
-                return (version, commands)
+                return version, commands
         else:
-            # TODO: raise exception
-            pass
+            raise DfuException('Get version failed after {} '
+                               'retries.'.format(retry + 1))
 
     def get_version_extended(self):
         for retry in range(0, self.__RETRY_MAX_NUM):
@@ -157,10 +173,10 @@ class Stm32UartDfu(object):
             version = self._port_handle.read(1)
             read_protection_status = self._port_handle.read(2)
             if self._is_acknowledged():
-                return (version, read_protection_status)
+                return version, read_protection_status
         else:
-            # TODO: raise exception
-            pass
+            raise DfuException('Get extended version failed after {} '
+                               'retries.'.format(retry + 1))
 
     def read(self, address, size, progress=None):
         size_remain = size
@@ -183,11 +199,13 @@ class Stm32UartDfu(object):
                 if self._is_acknowledged():
                     break
             else:
-                # TODO: raise exception
-                pass
+                raise DfuException('Read memory at {} failed after {} '
+                                   'retries.'.format(offset, retry + 1))
 
             chunk = self._port_handle.read(part_size)
-            # TODO: check if chunk length < part_size
+            if len(chunk) != part_size:
+                raise DfuException('Read {} bytes istead of '
+                                   '{}.'.format(len(chunk), part_size))
             data.extend(bytearray(chunk))
 
             size_remain -= part_size
@@ -217,15 +235,31 @@ class Stm32UartDfu(object):
 
                 chunk = data[offset - address:offset - address + part_size]
                 checksum = 0xff & ((part_size - 1) ^ self._checksum(chunk))
-                self._port_handle.write((part_size - 1).to_bytes(1, 'big'))
-                self._port_handle.write(chunk)
-                self._port_handle.write(checksum.to_bytes(1, 'big'))
+
+                bytes_sent = self._port_handle.write(bytearray([part_size - 1]))
+                if bytes_sent != len(bytearray([part_size - 1])):
+                    raise DfuException('Tried to send {} bytes, {} was '
+                                       'sent.'.format(
+                        len(bytearray([part_size - 1])),
+                        bytes_sent))
+
+                bytes_sent = self._port_handle.write(chunk)
+                if bytes_sent != len(chunk):
+                    raise DfuException('Tried to send {} bytes, {} was '
+                                       'sent.'.format(len(chunk), bytes_sent))
+
+                bytes_sent = self._port_handle.write(bytearray([checksum]))
+                if bytes_sent != len(bytearray([checksum])):
+                    raise DfuException('Tried to send {} bytes, {} was '
+                                       'sent.'.format(
+                        len(bytearray([checksum])),
+                        bytes_sent))
 
                 if self._is_acknowledged():
                     break
             else:
-                # TODO: raise exception
-                pass
+                raise DfuException('Write memory at {} failed after {} '
+                                   'retries.'.format(offset, retry + 1))
 
             size_remain -= part_size
 
@@ -239,8 +273,8 @@ class Stm32UartDfu(object):
             command_parameters.append(self._checksum(command_parameters))
         else:
             if memory_map is None:
-                # TODO: raise ex if memory_map is None
-                pass
+                raise DfuException('Only whole memory erase is possible '
+                                   'without memory map.')
 
             for sector_num, sector_params in enumerate(memory_map):
                 start = int(sector_params['address'], 0)
@@ -262,10 +296,14 @@ class Stm32UartDfu(object):
             command_parameters.append(self._checksum(command_parameters))
 
         for retry in range(0, self.__RETRY_MAX_NUM):
-            self._port_handle.write(command_parameters)
+            bytes_sent = self._port_handle.write(command_parameters)
+            if bytes_sent != len(command_parameters):
+                raise DfuException('Tried to send {} bytes, {} was '
+                                   'sent.'.format(len(command_parameters),
+                                                  bytes_sent))
 
             port_settings = self._port_handle.getSettingsDict()
-            port_settings['timeout'] = None
+            port_settings['timeout'] = 5 * 60
             self._port_handle.applySettingsDict(port_settings)
 
             if self._is_acknowledged():
@@ -274,8 +312,8 @@ class Stm32UartDfu(object):
                 self._port_handle.applySettingsDict(port_settings)
                 break
         else:
-            # TODO: raise exception
-            pass
+            raise DfuException('Erase memory failed after {} '
+                               'retries.'.format(retry + 1))
 
         progress.put(100)
 
@@ -387,7 +425,7 @@ if __name__ == '__main__':
     dfu = Stm32UartDfu('/dev/ttyUSB0')
 
     if args.mcu_id:
-        print('mcu id: 0x{}'.format(dfu.get_id().hex()))
+        print('MCU ID: 0x{}'.format(dfu.get_id().hex()))
 
     if args.memory_map is not None:
         map_file = open(args.memory_map, 'r')
@@ -397,9 +435,9 @@ if __name__ == '__main__':
 
     if args.erase:
         if args.size is not None:
-            print('erasing {} bytes from {}...'.format(args.size, args.address))
+            print('Erasing {} bytes from {}...'.format(args.size, args.address))
         else:
-            print('erasing whole memory ...')
+            print('Erasing whole memory...')
 
         bar_thread = ProgressBarThread(endless=True)
 
@@ -407,7 +445,7 @@ if __name__ == '__main__':
                   bar_thread.get_progress_queue())
 
     if args.dump:
-        print('dumping {} bytes from {}...'.format(args.size, args.address))
+        print('Dumping {} bytes from {}...'.format(args.size, args.address))
 
         bar_thread = ProgressBarThread()
 
@@ -421,17 +459,25 @@ if __name__ == '__main__':
         firmware = file.read()
         file.close()
 
-        # TODO: erase only space enough for firmware size
-        print('erasing whole memory ...')
+        if mem_map is None:
+            print('Erasing whole memory...')
+
+            erase_size = None
+        else:
+            print('Erasing {} bytes from {}...'.format(len(firmware),
+                                                       args.address))
+
+            erase_size = hex(len(firmware))
 
         bar_thread = ProgressBarThread(endless=True)
 
-        dfu.erase(args.address, None, mem_map, bar_thread.get_progress_queue())
+        dfu.erase(args.address, erase_size, mem_map,
+                  bar_thread.get_progress_queue())
 
         # FIXME: somehow wait for the progressbar 'done'
         time.sleep(1)
 
-        print('loading {} ({} bytes) at {}'.format(args.file, len(firmware),
+        print('Loading {} ({} bytes) at {}'.format(args.file, len(firmware),
                                                    args.address))
 
         bar_thread = ProgressBarThread()
@@ -439,12 +485,12 @@ if __name__ == '__main__':
         dfu.write(int(args.address, 0), firmware,
                   bar_thread.get_progress_queue())
 
-        print('validating firmware')
+        print('Validating firmware...')
 
         dump = dfu.read(int(args.address, 0), len(firmware),
                         bar_thread.get_progress_queue())
 
         if zlib.crc32(firmware) != zlib.crc32(dump):
-            print('checksum mismatch')
+            print('Error: checksum mismatch!')
         else:
-            print('firmware is valid')
+            print('Success: firmware is valid.')
