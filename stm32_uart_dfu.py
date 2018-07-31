@@ -3,8 +3,6 @@ import json
 import sys
 import time
 import zlib
-from queue import Empty
-from queue import Queue
 from threading import Thread
 
 import serial
@@ -178,13 +176,13 @@ class Stm32UartDfu(object):
             raise DfuException('Get extended version failed after {} '
                                'retries.'.format(retry + 1))
 
-    def read(self, address, size, progress=None):
+    def read(self, address, size, progress_update=None):
         size_remain = size
         data = bytearray()
 
         while size_remain > 0:
-            progress.queue.clear()
-            progress.put(int(100 * (size - size_remain) / size))
+            if progress_update is not None:
+                progress_update(int(100 * (size - size_remain) / size))
 
             part_size = self.__RW_MAX_SIZE \
                 if size_remain > self.__RW_MAX_SIZE else size_remain
@@ -210,7 +208,8 @@ class Stm32UartDfu(object):
 
             size_remain -= part_size
 
-        progress.put(100)
+        if progress_update is not None:
+            progress_update(100)
 
         return data
 
@@ -218,12 +217,13 @@ class Stm32UartDfu(object):
         self._send_command(self.__COMMAND['go'])
         self._set_address(address)
 
-    def write(self, address, data, progress=None):
+    def write(self, address, data, progress_update=None):
         size_remain = len(data)
 
         while size_remain > 0:
-            progress.queue.clear()
-            progress.put(int(100 * (len(data) - size_remain) / len(data)))
+            if progress_update is not None:
+                progress_update(
+                    int(100 * (len(data) - size_remain) / len(data)))
 
             part_size = self.__RW_MAX_SIZE \
                 if size_remain > self.__RW_MAX_SIZE else size_remain
@@ -263,9 +263,10 @@ class Stm32UartDfu(object):
 
             size_remain -= part_size
 
-        progress.put(100)
+        if progress_update is not None:
+            progress_update(100)
 
-    def erase(self, address, size=None, memory_map=None, progress=None):
+    def erase(self, address, size=None, memory_map=None, progress_update=None):
         self._send_command(self.__COMMAND['extended erase'])
 
         if size is None:
@@ -315,7 +316,8 @@ class Stm32UartDfu(object):
             raise DfuException('Erase memory failed after {} '
                                'retries.'.format(retry + 1))
 
-        progress.put(100)
+        if progress_update is not None:
+            progress_update(100)
 
 
 class ProgressBar(object):
@@ -379,27 +381,20 @@ class ProgressBar(object):
 
 class ProgressBarThread(Thread):
     def __init__(self, endless=False):
-        super().__init__()
+        super().__init__(target=self._run)
         self._bar = ProgressBar(endless)
-        self._progress_queue = Queue()
-        self._thread = Thread(target=self._run)
-        self._thread.start()
+        self._progress = None if endless else 0
+        super().start()
 
     def _run(self):
         while True:
-            try:
-                progress = self._progress_queue.get_nowait() \
-                    if self._bar.is_endless() else self._progress_queue.get()
-            except Empty:
-                progress = None
-
-            self._bar.update(progress)
-            if progress == 100:
+            self._bar.update(self._progress)
+            if self._progress == 100:
                 break
             time.sleep(0.2)
 
-    def get_progress_queue(self):
-        return self._progress_queue
+    def update(self, progress):
+        self._progress = progress
 
 
 if __name__ == '__main__':
@@ -450,8 +445,9 @@ if __name__ == '__main__':
 
         bar_thread = ProgressBarThread(endless=True)
 
-        dfu.erase(args.address, args.size, mem_map,
-                  bar_thread.get_progress_queue())
+        dfu.erase(args.address, args.size, mem_map, bar_thread.update)
+
+        bar_thread.join()
 
     if args.dump:
         print('Dumping {} bytes from {}...'.format(args.size, args.address))
@@ -460,8 +456,10 @@ if __name__ == '__main__':
 
         file = open(args.file, 'wb')
         file.write(dfu.read(int(args.address, 0), int(args.size, 0),
-                            bar_thread.get_progress_queue()))
+                            bar_thread.update))
         file.close()
+
+        bar_thread.join()
 
     if args.load:
         file = open(args.file, 'rb')
@@ -480,26 +478,26 @@ if __name__ == '__main__':
 
         bar_thread = ProgressBarThread(endless=True)
 
-        dfu.erase(args.address, erase_size, mem_map,
-                  bar_thread.get_progress_queue())
+        dfu.erase(args.address, erase_size, mem_map, bar_thread.update)
 
-        # FIXME: somehow wait for the progressbar 'done'
-        time.sleep(1)
+        bar_thread.join()
 
         print('Loading {} ({} bytes) at {}'.format(args.file, len(firmware),
                                                    args.address))
 
         bar_thread = ProgressBarThread()
 
-        dfu.write(int(args.address, 0), firmware,
-                  bar_thread.get_progress_queue())
+        dfu.write(int(args.address, 0), firmware, bar_thread.update)
+
+        bar_thread.join()
 
         print('Validating firmware...')
 
-        bar_thread = ProgressBarThread(endless=True)
+        bar_thread = ProgressBarThread()
 
-        dump = dfu.read(int(args.address, 0), len(firmware),
-                        bar_thread.get_progress_queue())
+        dump = dfu.read(int(args.address, 0), len(firmware), bar_thread.update)
+
+        bar_thread.join()
 
         if zlib.crc32(firmware) != zlib.crc32(dump):
             print('Error: checksum mismatch!')
