@@ -394,9 +394,9 @@ class ProgressBarThread(Thread):
                 progress = None
 
             self._bar.update(progress)
-            time.sleep(0.2)
             if progress == 100:
                 break
+            time.sleep(0.2)
 
     def get_progress_queue(self):
         return self._progress_queue
@@ -412,6 +412,8 @@ if __name__ == '__main__':
                             help='Required size of memory to be dumped or erase.')
     arg_parser.add_argument('-m', '--memory-map', default=None,
                             help='Json file, containing memory structure. Format: [{"address": "value", "size": "value"}, ...]')
+    arg_parser.add_argument('-r', '--run', action='store_true',
+                            help='Run program after loading.')
     arg_action = arg_parser.add_mutually_exclusive_group()
     arg_action.add_argument('-e', '--erase', action='store_true')
     arg_action.add_argument('-d', '--dump', action='store_true')
@@ -419,6 +421,8 @@ if __name__ == '__main__':
                             help='Load binary file at specified address (memory will be erased).')
     arg_action.add_argument('--mcu-id', action='store_true',
                             help='Print mcu id.')
+    arg_parser.add_argument('-g', '--go', action='store_true',
+                            help='Run from specified address.')
 
     args = arg_parser.parse_args()
 
@@ -426,6 +430,11 @@ if __name__ == '__main__':
 
     if args.mcu_id:
         print('MCU ID: 0x{}'.format(dfu.get_id().hex()))
+
+    if args.go:
+        print('MCU will be running from {}.'.format(args.address))
+
+        dfu.go(int(args.address, 0))
 
     if args.memory_map is not None:
         map_file = open(args.memory_map, 'r')
@@ -487,6 +496,8 @@ if __name__ == '__main__':
 
         print('Validating firmware...')
 
+        bar_thread = ProgressBarThread(endless=True)
+
         dump = dfu.read(int(args.address, 0), len(firmware),
                         bar_thread.get_progress_queue())
 
@@ -494,3 +505,8 @@ if __name__ == '__main__':
             print('Error: checksum mismatch!')
         else:
             print('Success: firmware is valid.')
+
+        if args.run:
+            print('MCU will be running from {}.'.format(args.address))
+
+            dfu.go(int(args.address, 0))
