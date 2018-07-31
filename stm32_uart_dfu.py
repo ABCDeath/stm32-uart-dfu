@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 import time
 import zlib
@@ -230,35 +231,51 @@ class Stm32UartDfu(object):
 
         progress.put(100)
 
-    def erase(self, address, size=None, progress=None):
+    def erase(self, address, size=None, memory_map=None, progress=None):
         self._send_command(self.__COMMAND['extended erase'])
 
         if size is None:
-            command_parameters = [0xff, 0xff, 0]
+            command_parameters = [0xff, 0xff]
             command_parameters.append(self._checksum(command_parameters))
-
-            for retry in range(0, self.__RETRY_MAX_NUM):
-                self._port_handle.write(command_parameters)
-
-                port_settings = self._port_handle.getSettingsDict()
-                port_settings['timeout'] = None
-                self._port_handle.applySettingsDict(port_settings)
-
-                if self._is_acknowledged():
-                    port_settings['timeout'] = \
-                        self.__DEFAULT_PARAMETERS['timeout']
-                    self._port_handle.applySettingsDict(port_settings)
-                    break
-            else:
-                # TODO: raise exception
+        else:
+            if memory_map is None:
+                # TODO: raise ex if memory_map is None
                 pass
 
-            # FIXME: without this byte every command is nacked
-            temp = 1
-            self._port_handle.write(temp.to_bytes(1, 'big'))
-            self._port_handle.read()
+            for sector_num, sector_params in enumerate(memory_map):
+                start = int(sector_params['address'], 0)
+                end = start + int(sector_params['size'], 0)
+
+                if start <= int(address, 0) < end:
+                    erase_start = sector_num
+                if start < int(address, 0) + int(size, 0) <= end:
+                    erase_end = sector_num
+                    break
+
+            sectors_num = erase_end - erase_start
+            sectors = [sector.to_bytes(2, 'big') for sector in
+                       range(erase_start, erase_end + 1)]
+
+            command_parameters = bytearray(sectors_num.to_bytes(2, 'big'))
+            for sector in sectors:
+                command_parameters.extend(bytearray(sector))
+            command_parameters.append(self._checksum(command_parameters))
+
+        for retry in range(0, self.__RETRY_MAX_NUM):
+            self._port_handle.write(command_parameters)
+
+            port_settings = self._port_handle.getSettingsDict()
+            port_settings['timeout'] = None
+            self._port_handle.applySettingsDict(port_settings)
+
+            if self._is_acknowledged():
+                port_settings['timeout'] = \
+                    self.__DEFAULT_PARAMETERS['timeout']
+                self._port_handle.applySettingsDict(port_settings)
+                break
         else:
-            raise NotImplementedError
+            # TODO: raise exception
+            pass
 
         progress.put(100)
 
@@ -348,22 +365,35 @@ class ProgressBarThread(Thread):
 
 
 if __name__ == '__main__':
-    dfu = Stm32UartDfu('/dev/ttyUSB0')
-
     arg_parser = argparse.ArgumentParser(description='Stm32 uart dfu utility.')
-    arg_parser.add_argument('-a', '--address', default='0x8000000')
-    arg_parser.add_argument('-f', '--file')
-    arg_parser.add_argument('-s', '--size', default=None)
+    arg_parser.add_argument('-a', '--address', default='0x8000000',
+                            help='Start address for loading/dumping/erasing memory. Default: 0x8000000')
+    arg_parser.add_argument('-f', '--file',
+                            help='Input/output file (depends on operation).')
+    arg_parser.add_argument('-s', '--size', default=None,
+                            help='Required size of memory to be dumped or erase.')
+    arg_parser.add_argument('-m', '--memory-map', default=None,
+                            help='Json file, containing memory structure. Format: [{"address": "value", "size": "value"}, ...]')
     arg_action = arg_parser.add_mutually_exclusive_group()
     arg_action.add_argument('-e', '--erase', action='store_true')
     arg_action.add_argument('-d', '--dump', action='store_true')
-    arg_action.add_argument('-l', '--load', action='store_true')
-    arg_action.add_argument('--mcu-id', action='store_true')
+    arg_action.add_argument('-l', '--load', action='store_true',
+                            help='Load binary file at specified address (memory will be erased).')
+    arg_action.add_argument('--mcu-id', action='store_true',
+                            help='Print mcu id.')
 
     args = arg_parser.parse_args()
 
+    dfu = Stm32UartDfu('/dev/ttyUSB0')
+
     if args.mcu_id:
         print('mcu id: 0x{}'.format(dfu.get_id().hex()))
+
+    if args.memory_map is not None:
+        map_file = open(args.memory_map, 'r')
+        mem_map = json.load(map_file)
+    else:
+        mem_map = None
 
     if args.erase:
         if args.size is not None:
@@ -373,7 +403,8 @@ if __name__ == '__main__':
 
         bar_thread = ProgressBarThread(endless=True)
 
-        dfu.erase(args.address, args.size, bar_thread.get_progress_queue())
+        dfu.erase(args.address, args.size, mem_map,
+                  bar_thread.get_progress_queue())
 
     if args.dump:
         print('dumping {} bytes from {}...'.format(args.size, args.address))
@@ -395,7 +426,7 @@ if __name__ == '__main__':
 
         bar_thread = ProgressBarThread(endless=True)
 
-        dfu.erase(args.address, None, bar_thread.get_progress_queue())
+        dfu.erase(args.address, None, mem_map, bar_thread.get_progress_queue())
 
         # FIXME: somehow wait for the progressbar 'done'
         time.sleep(1)
