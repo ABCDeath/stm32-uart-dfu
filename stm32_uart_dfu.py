@@ -397,106 +397,77 @@ class ProgressBarThread(Thread):
         self._progress = progress
 
 
-if __name__ == '__main__':
-    arg_parser = argparse.ArgumentParser(description='Stm32 uart dfu utility.')
-    arg_parser.add_argument('-a', '--address', default='0x8000000',
-                            help='Start address for loading/dumping/erasing memory. Default: 0x8000000')
-    arg_parser.add_argument('-f', '--file',
-                            help='Input/output file (depends on operation).')
-    arg_parser.add_argument('-s', '--size', default=None,
-                            help='Required size of memory to be dumped or erase.')
-    arg_parser.add_argument('-m', '--memory-map', default=None,
-                            help='Json file, containing memory structure. Format: [{"address": "value", "size": "value"}, ...]')
-    arg_parser.add_argument('-r', '--run', action='store_true',
-                            help='Run program after loading.')
-    arg_action = arg_parser.add_mutually_exclusive_group()
-    arg_action.add_argument('-e', '--erase', action='store_true')
-    arg_action.add_argument('-d', '--dump', action='store_true')
-    arg_action.add_argument('-l', '--load', action='store_true',
-                            help='Load binary file at specified address (memory will be erased).')
-    arg_action.add_argument('--mcu-id', action='store_true',
-                            help='Print mcu id.')
-    arg_parser.add_argument('-g', '--go', action='store_true',
-                            help='Run from specified address.')
+class DfuCommandHandler(object):
+    def __init__(self):
+        self._dfu = Stm32UartDfu('/dev/ttyUSB0')
 
-    args = arg_parser.parse_args()
+    def get_id(self, args):
+        print('MCU ID: 0x{}'.format(self._dfu.get_id().hex()))
 
-    dfu = Stm32UartDfu('/dev/ttyUSB0')
-
-    if args.mcu_id:
-        print('MCU ID: 0x{}'.format(dfu.get_id().hex()))
-
-    if args.go:
+    def run(self, args):
         print('MCU will be running from {}.'.format(args.address))
 
-        dfu.go(int(args.address, 0))
+        self._dfu.go(int(args.address, 0))
 
-    if args.memory_map is not None:
-        map_file = open(args.memory_map, 'r')
-        mem_map = json.load(map_file)
-    else:
-        mem_map = None
+    def erase(self, args):
+        if args.memory_map is not None:
+            with open(args.memory_map, 'r') as map_file:
+                mem_map = json.load(map_file)
+        else:
+            mem_map = None
 
-    if args.erase:
         if args.size is not None:
             print('Erasing {} bytes from {}...'.format(args.size, args.address))
         else:
             print('Erasing whole memory...')
 
         bar_thread = ProgressBarThread(endless=True)
-
-        dfu.erase(args.address, args.size, mem_map, bar_thread.update)
-
+        self._dfu.erase(args.address, args.size, mem_map, bar_thread.update)
         bar_thread.join()
 
-    if args.dump:
+    def dump(self, args):
         print('Dumping {} bytes from {}...'.format(args.size, args.address))
 
         bar_thread = ProgressBarThread()
 
-        file = open(args.file, 'wb')
-        file.write(dfu.read(int(args.address, 0), int(args.size, 0),
-                            bar_thread.update))
-        file.close()
-
+        with open(args.file, 'wb') as dump:
+            dump.write(self._dfu.read(int(args.address, 0), int(args.size, 0),
+                                      bar_thread.update))
         bar_thread.join()
 
-    if args.load:
-        file = open(args.file, 'rb')
-        firmware = file.read()
-        file.close()
+    def load(self, args):
+        with open(args.file, 'rb') as firmware_file:
+            firmware = firmware_file.read()
 
-        if mem_map is None:
-            print('Erasing whole memory...')
+        if args.erase:
+            if args.memory_map is not None:
+                with open(args.memory_map, 'r') as map_file:
+                    mem_map = json.load(map_file)
+                print('Erasing {} bytes from {}...'.format(len(firmware),
+                                                           args.address))
+                erase_size = hex(len(firmware))
+            else:
+                print('Erasing whole memory...')
+                mem_map = None
+                erase_size = None
 
-            erase_size = None
-        else:
-            print('Erasing {} bytes from {}...'.format(len(firmware),
-                                                       args.address))
-
-            erase_size = hex(len(firmware))
-
-        bar_thread = ProgressBarThread(endless=True)
-
-        dfu.erase(args.address, erase_size, mem_map, bar_thread.update)
-
-        bar_thread.join()
+            bar_thread = ProgressBarThread(endless=True)
+            self._dfu.erase(args.address, erase_size, mem_map,
+                            bar_thread.update)
+            bar_thread.join()
 
         print('Loading {} ({} bytes) at {}'.format(args.file, len(firmware),
                                                    args.address))
 
         bar_thread = ProgressBarThread()
-
-        dfu.write(int(args.address, 0), firmware, bar_thread.update)
-
+        self._dfu.write(int(args.address, 0), firmware, bar_thread.update)
         bar_thread.join()
 
         print('Validating firmware...')
 
         bar_thread = ProgressBarThread()
-
-        dump = dfu.read(int(args.address, 0), len(firmware), bar_thread.update)
-
+        dump = self._dfu.read(int(args.address, 0), len(firmware),
+                              bar_thread.update)
         bar_thread.join()
 
         if zlib.crc32(firmware) != zlib.crc32(dump):
@@ -506,5 +477,61 @@ if __name__ == '__main__':
 
         if args.run:
             print('MCU will be running from {}.'.format(args.address))
+            self._dfu.go(int(args.address, 0))
 
-            dfu.go(int(args.address, 0))
+
+if __name__ == '__main__':
+    dfu_handler = DfuCommandHandler()
+
+    __ARGS_HELP = {
+        'address': 'Memory address for ',
+        'size': 'Required size of memory to be ',
+        'memmap': 'Json file, containing memory structure. Format: [{"address": "value", "size": "value"}, ...]',
+        'run': 'Run program after loading.',
+        'erase': 'Erase memory enough to store firmware (whole memory if no memory map).'
+    }
+
+    arg_parser = argparse.ArgumentParser(description='Stm32 uart dfu utility.')
+    commands = arg_parser.add_subparsers()
+
+    load_command = commands.add_parser('load')
+    load_command.add_argument('-a', '--address', default='0x8000000',
+                              help=__ARGS_HELP[
+                                       'address'] + 'loading binary file.')
+    load_command.add_argument('-e', '--erase', action='store_true',
+                              help=__ARGS_HELP['erase'])
+    load_command.add_argument('-f', '--file', help='Binary firmware file.')
+    load_command.add_argument('-m', '--memory-map', default=None,
+                              help=__ARGS_HELP['memmap'])
+    load_command.add_argument('-r', '--run', action='store_true',
+                              help=__ARGS_HELP['run'])
+    load_command.set_defaults(func=dfu_handler.load)
+
+    erase_command = commands.add_parser('erase')
+    erase_command.add_argument('-a', '--address', default='0x8000000',
+                               help=__ARGS_HELP['address'] + 'erasing.')
+    erase_command.add_argument('-m', '--memory-map', default=None,
+                               help=__ARGS_HELP['memmap'])
+    erase_command.add_argument('-s', '--size', default=None,
+                               help=__ARGS_HELP['size'] + 'erased.')
+    erase_command.set_defaults(func=dfu_handler.erase)
+
+    dump_command = commands.add_parser('dump')
+    dump_command.add_argument('-a', '--address', default='0x8000000',
+                              help=__ARGS_HELP['address'] + 'dump.')
+    dump_command.add_argument('-s', '--size', default=None,
+                              help=__ARGS_HELP['size'] + 'dumped.')
+    dump_command.add_argument('-f', '--file',
+                              help='Specify file for memory dump.')
+    dump_command.set_defaults(func=dfu_handler.dump)
+
+    get_id_command = commands.add_parser('id')
+    get_id_command.set_defaults(func=dfu_handler.get_id)
+
+    run_command = commands.add_parser('run')
+    run_command.add_argument('-a', '--address', default='0x8000000',
+                             help=__ARGS_HELP['address'] + 'run.')
+    run_command.set_defaults(func=dfu_handler.run)
+
+    args = arg_parser.parse_args()
+    args.func(args)
