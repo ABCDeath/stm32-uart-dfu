@@ -337,7 +337,10 @@ class ProgressBar(object):
         return self._BAR_MAX_LEN - self._complete_len(progress)
 
     def _print(self, progress=None):
-        if progress == 100:
+        if progress == -1:
+            sys.stdout.write(
+                '\r[{}] failed\r\n'.format('-' * self._BAR_MAX_LEN))
+        elif progress == 100:
             sys.stdout.write('\r[{}] done\r\n'.format('█' * self._BAR_MAX_LEN))
         else:
             if self._endless:
@@ -389,7 +392,7 @@ class ProgressBarThread(Thread):
     def _run(self):
         while True:
             self._bar.update(self._progress)
-            if self._progress == 100:
+            if self._progress == 100 or self._progress == -1:
                 break
             time.sleep(0.2)
 
@@ -398,8 +401,16 @@ class ProgressBarThread(Thread):
 
 
 class DfuCommandHandler(object):
+    __EXCEPTION_MESSAGE = 'Reset MCU and try again.'
     def __init__(self):
         self._dfu = Stm32UartDfu('/dev/ttyUSB0')
+
+    def _abort(self, ex, bar_thread=None):
+        if bar_thread is not None:
+            bar_thread.update(-1)
+            bar_thread.join()
+        print('Error: {}'.format(ex))
+        print(self.__EXCEPTION_MESSAGE)
 
     def get_id(self, args):
         print('MCU ID: 0x{}'.format(self._dfu.get_id().hex()))
@@ -422,7 +433,11 @@ class DfuCommandHandler(object):
             print('Erasing whole memory...')
 
         bar_thread = ProgressBarThread(endless=True)
-        self._dfu.erase(args.address, args.size, mem_map, bar_thread.update)
+        try:
+            self._dfu.erase(args.address, args.size, mem_map, bar_thread.update)
+        except DfuException as ex:
+            self._abort(ex, bar_thread)
+            return
         bar_thread.join()
 
     def dump(self, args):
@@ -452,22 +467,34 @@ class DfuCommandHandler(object):
                 erase_size = None
 
             bar_thread = ProgressBarThread(endless=True)
-            self._dfu.erase(args.address, erase_size, mem_map,
-                            bar_thread.update)
+            try:
+                self._dfu.erase(args.address, erase_size, mem_map,
+                                bar_thread.update)
+            except DfuException as ex:
+                self._abort(ex, bar_thread)
+                return
             bar_thread.join()
 
         print('Loading {} ({} bytes) at {}'.format(args.file, len(firmware),
                                                    args.address))
 
         bar_thread = ProgressBarThread()
-        self._dfu.write(int(args.address, 0), firmware, bar_thread.update)
+        try:
+            self._dfu.write(int(args.address, 0), firmware, bar_thread.update)
+        except DfuException as ex:
+            self._abort(ex, bar_thread)
+            return
         bar_thread.join()
 
         print('Validating firmware...')
 
         bar_thread = ProgressBarThread()
-        dump = self._dfu.read(int(args.address, 0), len(firmware),
-                              bar_thread.update)
+        try:
+            dump = self._dfu.read(int(args.address, 0), len(firmware),
+                                  bar_thread.update)
+        except DfuException as ex:
+            self._abort(ex, bar_thread)
+            return
         bar_thread.join()
 
         if zlib.crc32(firmware) != zlib.crc32(dump):
@@ -477,7 +504,11 @@ class DfuCommandHandler(object):
 
         if args.run:
             print('MCU will be running from {}.'.format(args.address))
-            self._dfu.go(int(args.address, 0))
+            try:
+                self._dfu.go(int(args.address, 0))
+            except DfuException as ex:
+                self._abort(ex)
+                return
 
 
 if __name__ == '__main__':
