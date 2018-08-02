@@ -460,8 +460,6 @@ class ProgressBarThread(Thread):
 
 class DfuCommandHandler(object):
     __EXCEPTION_MESSAGE = 'Reset MCU and try again.'
-    def __init__(self):
-        self._dfu = Stm32UartDfu('/dev/ttyUSB0')
 
     def _abort(self, ex, bar_thread=None):
         if bar_thread is not None:
@@ -469,6 +467,9 @@ class DfuCommandHandler(object):
             bar_thread.join()
         print('Error: {}'.format(ex))
         print(self.__EXCEPTION_MESSAGE)
+
+    def set_dfu(self, dfu):
+        self._dfu = dfu
 
     def get_id(self, args):
         print('MCU ID: 0x{}'.format(self._dfu.get_id().hex()))
@@ -558,7 +559,7 @@ class DfuCommandHandler(object):
         if zlib.crc32(firmware) != zlib.crc32(dump):
             print('Error: checksum mismatch!')
         else:
-            print('Success: firmware is valid.')
+            print('Success!')
 
         if args.run:
             print('MCU will be running from {}.'.format(args.address))
@@ -570,8 +571,6 @@ class DfuCommandHandler(object):
 
 
 if __name__ == '__main__':
-    dfu_handler = DfuCommandHandler()
-
     __ARGS_HELP = {
         'address': 'Memory address for ',
         'size': 'Required size of memory to be ',
@@ -580,7 +579,12 @@ if __name__ == '__main__':
         'erase': 'Erase memory enough to store firmware (whole memory if no memory map).'
     }
 
+    dfu_handler = DfuCommandHandler()
+
     arg_parser = argparse.ArgumentParser(description='Stm32 uart dfu utility.')
+    arg_parser.add_argument('-p', '--port', default='/dev/ttyUSB0',
+                            help='Serial port file (for example: /dev/ttyUSB0).')
+
     commands = arg_parser.add_subparsers()
 
     load_command = commands.add_parser('load')
@@ -623,4 +627,7 @@ if __name__ == '__main__':
     run_command.set_defaults(func=dfu_handler.run)
 
     args = arg_parser.parse_args()
+
+    dfu_handler.set_dfu(Stm32UartDfu(args.port))
+
     args.func(args)
