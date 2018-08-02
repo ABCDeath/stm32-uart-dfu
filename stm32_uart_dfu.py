@@ -16,6 +16,7 @@ class DfuException(Exception):
 
 
 class Stm32UartDfu(object):
+    """ST microelectronics uart dfu handler."""
     __DEFAULT_PARAMETERS = {
         'baudrate': 115200,
         'parity': 'E',
@@ -59,6 +60,11 @@ class Stm32UartDfu(object):
         return checksum
 
     def _is_acknowledged(self):
+        """
+        Reads dfu answer and checks is it acknowledge byte or not.
+        :return:
+            bool - True if acknowledge byte was received, otherwise False.
+        """
         response = self._port_handle.read(1)
         if len(response) == 0:
             raise DfuException('DFU did not send the answer.')
@@ -68,6 +74,7 @@ class Stm32UartDfu(object):
         return response == self.__RESPONSE['ack']
 
     def _uart_dfu_init(self):
+        """Sends uart dfu init byte and waits for acknowledge answer."""
         __INIT_SEQUENCE = [0x7f]
 
         for retry in range(0, self.__RETRY_MAX_NUM):
@@ -100,6 +107,7 @@ class Stm32UartDfu(object):
             self._port_handle.close()
 
     def _send_command(self, command):
+        """Sends command with checksum, waits for acknowledge."""
         command_sequence = [command, self._checksum(command)]
 
         for retry in range(0, self.__RETRY_MAX_NUM):
@@ -121,6 +129,10 @@ class Stm32UartDfu(object):
                 '{} retries.'.format(hex(command), retry + 1))
 
     def _set_address(self, address):
+        """
+        Sends address with checksum for read, write and erase commands.
+        :param address: int
+        """
         for retry in range(0, self.__RETRY_MAX_NUM):
             sequence = bytearray(address.to_bytes(4, 'big'))
             sequence.append(self._checksum(sequence))
@@ -138,6 +150,11 @@ class Stm32UartDfu(object):
                                'retries.'.format(retry + 1))
 
     def get_id(self):
+        """
+        Reads MCU ID.
+        :return:
+            bytes - product id
+        """
         for retry in range(0, self.__RETRY_MAX_NUM):
             self._send_command(self.__COMMAND['get id'])
 
@@ -150,6 +167,12 @@ class Stm32UartDfu(object):
                                'retries.'.format(retry + 1))
 
     def get_version(self):
+        """
+        Reads dfu version and available commands.
+        :return:
+            version: bytes - dfu version
+            commands: bytes - dfu available commands
+        """
         for retry in range(0, self.__RETRY_MAX_NUM):
             self._send_command(self.__COMMAND['get version'])
 
@@ -164,6 +187,12 @@ class Stm32UartDfu(object):
                                'retries.'.format(retry + 1))
 
     def get_version_extended(self):
+        """
+        Reads dfu version and read protection status bytes.
+        :return:
+            version: bytes - dfu version
+            read_protection_status: bytes - read protection status
+        """
         for retry in range(0, self.__RETRY_MAX_NUM):
             self._send_command(
                 self.__COMMAND['get version and protection status'])
@@ -177,6 +206,14 @@ class Stm32UartDfu(object):
                                'retries.'.format(retry + 1))
 
     def read(self, address, size, progress_update=None):
+        """
+        Reads %size% bytes of memory from %address%.
+        :param address: int - address to start reading
+        :param size: int - size of memory to be dumped
+        :param progress_update: function - function to update progressbar
+            default: None
+        :return: bytearray - memory dump
+        """
         size_remain = size
         data = bytearray()
 
@@ -214,10 +251,21 @@ class Stm32UartDfu(object):
         return data
 
     def go(self, address):
+        """
+        Runs MCU from memory defined by address parameter.
+        :param address: int - address to jump
+        """
         self._send_command(self.__COMMAND['go'])
         self._set_address(address)
 
     def write(self, address, data, progress_update=None):
+        """
+        Loads %data% to mcu memory at %address%.
+        :param address: int
+        :param data: bytes or bytearray
+        :param progress_update: function - function to update progressbar
+            default: None
+        """
         size_remain = len(data)
 
         while size_remain > 0:
@@ -267,6 +315,16 @@ class Stm32UartDfu(object):
             progress_update(100)
 
     def erase(self, address, size=None, memory_map=None, progress_update=None):
+        """
+        Erases mcu memory. Memory can be erased only by pages,
+        so the whole pages containing start and stop addresses will be erased.
+        :param address: int - erase starting address
+        :param size: int - size of memory to be erased
+        :param memory_map: list of dicts {address: value, size: value} -
+            mcu memory sectors addresses with size
+        :param progress_update: function - function to update progressbar
+            default: None
+        """
         self._send_command(self.__COMMAND['extended erase'])
 
         if size is None:
