@@ -22,7 +22,29 @@ class DfuSerialException(DfuException, serial.SerialException):
         super().__init__(f'Serial IO error: tried to transfer '
                          f'{expected}, {actual} was done.')
 
-class Stm32UartDfu(object):
+
+def _retry(retry_num=0, action='', exc_call=None):
+    def decorator(func):
+        def retry_wrapper(*args, **kwargs):
+            for current_retry in range(retry_num):
+                try:
+                    ret = func(*args, **kwargs)
+                except DfuException as ex:
+                    if exc_call:
+                        exc_call()
+                    last_caught = ex
+                else:
+                    return ret
+            else:
+                raise DfuException(
+                    f'Error: {action} '
+                    f'failed after {retry_num} retries.') from last_caught
+
+        return retry_wrapper
+    return decorator
+
+
+class Stm32UartDfu:
     """ST microelectronics uart dfu handler."""
     _DEFAULT_PARAMETERS = {
         'baudrate': 115200,
