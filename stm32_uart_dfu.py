@@ -9,11 +9,18 @@ import serial
 
 
 class DfuException(Exception):
-    def __init__(self, message=None):
-        if message is None:
-            message = 'An error occurred in dfu.'
-        super().__init__(message)
+    pass
 
+
+class DfuAcknowledgeException(DfuException):
+    def __init__(self, answer):
+        super().__init__(f'Acknowledge error (dfu answer: {answer}')
+
+
+class DfuSerialException(DfuException, serial.SerialException):
+    def __init__(self, expected, actual):
+        super().__init__(f'Serial IO error: tried to transfer '
+                         f'{expected}, {actual} was done.')
 
 class Stm32UartDfu(object):
     """ST microelectronics uart dfu handler."""
