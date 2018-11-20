@@ -34,7 +34,7 @@ def _retry(retry_num=0, action='', exc_call=None):
                     ret = func(*args, **kwargs)
                 except DfuException as ex:
                     if exc_call:
-                        exc_call(*args)
+                        exc_call(args[0])
                     last_caught = ex
                 else:
                     return ret
