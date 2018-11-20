@@ -281,8 +281,7 @@ class Stm32UartDfu:
 
         self._send_command(self._COMMAND['get version and protection status'])
 
-        version = self._serial_read(1)
-        read_protection_status = self._serial_read(2)
+        read_protection_status = self._serial_read(3)[1:]
 
         self._check_acknowledge()
 
@@ -305,7 +304,8 @@ class Stm32UartDfu:
         self._send_command(self._COMMAND['go'])
         self._set_address(address)
 
-    def read(self, address, size, progress_update=lambda *args: None):
+    def read(self, address=None, size=None, progress_update=lambda *args: None,
+             *, memory_map=None):
         """
         Reads %size% bytes of memory from %address%.
         :param address: int - address to start reading
@@ -314,6 +314,11 @@ class Stm32UartDfu:
             default: None
         :return: bytearray - memory dump
         """
+
+        address = address if address else int(memory_map[0]['address'], 0)
+        size = size if size else (int(memory_map[-1]['address'], 0) +
+                                  int(memory_map[-1]['size'], 0) -
+                                  address)
 
         size_remain = size
         data = b''
@@ -355,7 +360,7 @@ class Stm32UartDfu:
 
         progress_update(100)
 
-    def erase(self, address, size=None, memory_map=None,
+    def erase(self, address=None, size=None, memory_map=None,
               progress_update=lambda *args: None):
         """
         Erases mcu memory. Memory can be erased only by pages,
@@ -368,9 +373,7 @@ class Stm32UartDfu:
             default: None
         """
 
-        self._send_command(self._COMMAND['extended erase'])
-
-        if not size:
+        if not size and not address:
             mass_erase = b'\xff\xff'
             parameters = b''.join([mass_erase, self._checksum(mass_erase)])
         else:
@@ -400,6 +403,7 @@ class Stm32UartDfu:
             parameters = b''.join([(end - start).to_bytes(2, 'big'), *sectors])
             parameters = b''.join([parameters, self._checksum(parameters)])
 
+        self._send_command(self._COMMAND['extended erase'])
         self._perform_erase(parameters)
 
         progress_update(100)
