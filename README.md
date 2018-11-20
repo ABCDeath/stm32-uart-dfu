@@ -2,6 +2,9 @@
 Simple command-line program that works with stm32 microcontrollers
 uart bootloader.
 
+## Requirements:
+pyserial
+
 ## Usage:
 Available dfu operations:
  - get id: prints mcu id (2 bytes)

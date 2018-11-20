@@ -34,7 +34,7 @@ def _retry(retry_num=0, action='', exc_call=None):
                     ret = func(*args, **kwargs)
                 except DfuException as ex:
                     if exc_call:
-                        exc_call(*args)
+                        exc_call(args[0])
                     last_caught = ex
                 else:
                     return ret
@@ -91,6 +91,11 @@ class Stm32UartDfu:
             raise serial.SerialException("Can't open serial port.")
 
         self._uart_dfu_init()
+
+        self._id = None
+        self._version = None
+        self._commands = None
+        self._read_protection_status = None
 
     def __delete__(self):
         if self._port_handle.isOpen():
@@ -202,18 +207,19 @@ class Stm32UartDfu:
             port_settings['timeout'] = self._DEFAULT_PARAMETERS['timeout']
             self._port_handle.applySettingsDict(port_settings)
 
-    # public methods
+    # dfu properties
 
-    def close(self):
-        self._port_handle.close()
-
+    @property
     @_retry(_RETRIES, 'get mcu id', _serial_flush)
-    def get_id(self):
+    def id(self):
         """
         Reads MCU ID.
         :return:
             bytes - product id
         """
+
+        if self._id:
+            return self._id
 
         self._send_command(self._COMMAND['get id'])
 
@@ -222,16 +228,22 @@ class Stm32UartDfu:
 
         self._check_acknowledge()
 
+        self._id = pid
+
         return pid
 
+    @property
     @_retry(_RETRIES, 'get dfu version', _serial_flush)
-    def get_version(self):
+    def version(self):
         """
         Reads dfu version and available commands.
         :return:
             version: bytes - dfu version
             commands: bytes - dfu available commands
         """
+
+        if self._version:
+            return self._version
 
         self._send_command(self._COMMAND['get version'])
 
@@ -242,10 +254,21 @@ class Stm32UartDfu:
 
         self._check_acknowledge()
 
-        return version, commands
+        self._version = version
+        self._commands = commands
 
+        return version
+
+    @property
+    def commands(self):
+        if not self._commands:
+            ver = self.version
+
+        return self._commands
+
+    @property
     @_retry(_RETRIES, 'get extended dfu version', _serial_flush)
-    def get_version_extended(self):
+    def read_protection_status(self):
         """
         Reads dfu version and read protection status bytes.
         :return:
@@ -253,14 +276,23 @@ class Stm32UartDfu:
             read_protection_status: bytes - read protection status
         """
 
+        if self._read_protection_status:
+            return self._read_protection_status
+
         self._send_command(self._COMMAND['get version and protection status'])
 
-        version = self._serial_read(1)
-        read_protection_status = self._serial_read(2)
+        read_protection_status = self._serial_read(3)[1:]
 
         self._check_acknowledge()
 
-        return version, read_protection_status
+        self._read_protection_status = read_protection_status
+
+        return read_protection_status
+
+    # public methods
+
+    def close(self):
+        self._port_handle.close()
 
     @_retry(_RETRIES, 'go', _serial_flush)
     def go(self, address):
@@ -272,7 +304,8 @@ class Stm32UartDfu:
         self._send_command(self._COMMAND['go'])
         self._set_address(address)
 
-    def read(self, address, size, progress_update=lambda *args: None):
+    def read(self, address=None, size=None, progress_update=lambda *args: None,
+             *, memory_map=None):
         """
         Reads %size% bytes of memory from %address%.
         :param address: int - address to start reading
@@ -281,6 +314,11 @@ class Stm32UartDfu:
             default: None
         :return: bytearray - memory dump
         """
+
+        address = address if address else int(memory_map[0]['address'], 0)
+        size = size if size else (int(memory_map[-1]['address'], 0) +
+                                  int(memory_map[-1]['size'], 0) -
+                                  address)
 
         size_remain = size
         data = b''
@@ -322,7 +360,7 @@ class Stm32UartDfu:
 
         progress_update(100)
 
-    def erase(self, address, size=None, memory_map=None,
+    def erase(self, address=None, size=None, memory_map=None,
               progress_update=lambda *args: None):
         """
         Erases mcu memory. Memory can be erased only by pages,
@@ -335,9 +373,7 @@ class Stm32UartDfu:
             default: None
         """
 
-        self._send_command(self._COMMAND['extended erase'])
-
-        if not size:
+        if not size and not address:
             mass_erase = b'\xff\xff'
             parameters = b''.join([mass_erase, self._checksum(mass_erase)])
         else:
@@ -367,6 +403,7 @@ class Stm32UartDfu:
             parameters = b''.join([(end - start).to_bytes(2, 'big'), *sectors])
             parameters = b''.join([parameters, self._checksum(parameters)])
 
+        self._send_command(self._COMMAND['extended erase'])
         self._perform_erase(parameters)
 
         progress_update(100)
