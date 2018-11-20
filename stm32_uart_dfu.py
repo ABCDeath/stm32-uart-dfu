@@ -1,7 +1,6 @@
 import argparse
 import collections
 import json
-import sys
 import time
 import zlib
 from threading import Thread
@@ -109,7 +108,8 @@ class Stm32UartDfu:
         if self._port_handle.isOpen():
             self.close()
 
-    def _checksum(self, data, init=0):
+    @staticmethod
+    def _checksum(data, init=0):
         if isinstance(data, collections.Sequence):
             val = reduce(lambda accum, current: accum ^ current, data, init)
         else:
@@ -149,9 +149,7 @@ class Stm32UartDfu:
     def _uart_dfu_init(self):
         """Sends uart dfu init byte and waits for acknowledge answer."""
 
-        INIT_SEQUENCE = [0x7f]
-
-        self._serial_write(INIT_SEQUENCE)
+        self._serial_write(0x7f.to_bytes(1, 'big'))
         self._check_acknowledge()
 
     @_retry(_RETRIES, 'send dfu command', _serial_flush)
@@ -197,7 +195,7 @@ class Stm32UartDfu:
 
     @_retry(_RETRIES, 'erase', _serial_flush)
     def _perform_erase(self, parameters):
-        bytes_sent = self._serial_write(parameters)
+        self._serial_write(parameters)
 
         port_settings = self._port_handle.getSettingsDict()
         port_settings['timeout'] = 5 * 60
@@ -345,8 +343,8 @@ class Stm32UartDfu:
         self._send_command(self._COMMAND['extended erase'])
 
         if not size:
-            MASS_ERASE = b'\xff\xff'
-            parameters = b''.join([MASS_ERASE, self._checksum(MASS_ERASE)])
+            mass_erase = b'\xff\xff'
+            parameters = b''.join([mass_erase, self._checksum(mass_erase)])
         else:
             if not memory_map:
                 raise AttributeError(
@@ -462,17 +460,20 @@ class ProgressBarThread(Thread):
 
 
 class DfuCommandHandler:
-    def _abort(self, bar_thread=None):
+    @staticmethod
+    def _abort(bar_thread=None):
         if bar_thread:
             bar_thread.update(-1)
             bar_thread.join()
 
         print('An Error occurred Reset MCU and try again.')
 
-    def get_id(self, dfu, args):
+    @staticmethod
+    def get_id(dfu, args):
         print('MCU ID: 0x{}'.format(dfu.get_id().hex()))
 
-    def run(self, dfu, args):
+    @staticmethod
+    def run(dfu, args):
         print(f'MCU will be running from {args.address}.')
 
         dfu.go(int(args.address, 0))
