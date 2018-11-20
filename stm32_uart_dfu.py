@@ -279,7 +279,7 @@ class Stm32UartDfu:
         self._send_command(self._COMMAND['go'])
         self._set_address(address)
 
-    def read(self, address, size, progress_update=None):
+    def read(self, address, size, progress_update=lambda *args: None):
         """
         Reads %size% bytes of memory from %address%.
         :param address: int - address to start reading
@@ -293,8 +293,7 @@ class Stm32UartDfu:
         data = b''
 
         while size_remain:
-            if progress_update:
-                progress_update(int(100 * (size - size_remain) / size))
+            progress_update(int(100 * (size - size_remain) / size))
 
             part_size = min(self._RW_MAX_SIZE, size_remain)
             offset = address + size - size_remain
@@ -303,12 +302,11 @@ class Stm32UartDfu:
 
             size_remain -= part_size
 
-        if progress_update:
-            progress_update(100)
+        progress_update(100)
 
         return data
 
-    def write(self, address, data, progress_update=None):
+    def write(self, address, data, progress_update=lambda *args: None):
         """
         Loads %data% to mcu memory at %address%.
         :param address: int
@@ -319,9 +317,7 @@ class Stm32UartDfu:
         size_remain = len(data)
 
         while size_remain:
-            if progress_update:
-                progress_update(
-                    int(100 * (len(data) - size_remain) / len(data)))
+            progress_update(int(100 * (len(data) - size_remain) / len(data)))
 
             part_size = min(self._RW_MAX_SIZE, size_remain)
             offset = address + len(data) - size_remain
@@ -331,10 +327,10 @@ class Stm32UartDfu:
 
             size_remain -= part_size
 
-        if progress_update:
-            progress_update(100)
+        progress_update(100)
 
-    def erase(self, address, size=None, memory_map=None, progress_update=None):
+    def erase(self, address, size=None, memory_map=None,
+              progress_update=lambda *args: None):
         """
         Erases mcu memory. Memory can be erased only by pages,
         so the whole pages containing start and stop addresses will be erased.
@@ -380,8 +376,7 @@ class Stm32UartDfu:
 
         self._perform_erase(parameters)
 
-        if progress_update:
-            progress_update(100)
+        progress_update(100)
 
 
 class ProgressBar:
@@ -402,19 +397,21 @@ class ProgressBar:
 
     def _print(self, progress=None):
         if progress == -1:
-            sys.stdout.write(
-                '\r[{}] failed\r\n'.format('-' * self._BAR_MAX_LEN))
+            print(f'\r[{"-"*self._BAR_MAX_LEN}] failed.')
         elif progress == 100:
-            sys.stdout.write('\r[{}] done\r\n'.format('█' * self._BAR_MAX_LEN))
+            print(f'\r[{"█"*self._BAR_MAX_LEN}] done.')
         else:
             if self._endless:
                 tail = self._BAR_MAX_LEN - self._bar_len - self._position
-                sys.stdout.write('\r[{}{}{}] ...'.format(
-                    ' ' * self._position, '█' * self._bar_len, ' ' * tail))
+                print(
+                    f'\r[{" "*self._position}{"█"*self._bar_len}'
+                    f'{" "*tail}] ...',
+                    end='')
             else:
-                sys.stdout.write('\r[{}{}] {}%'.format(
-                    '█' * self._complete_len(progress),
-                    ' ' * self._incomplete_len(progress), progress))
+                print(
+                    f'\r[{"█"*self._complete_len(progress)}'
+                    f'{" "*self._incomplete_len(progress)}] {progress}%',
+                    end='')
 
     def is_endless(self):
         return self._endless
@@ -465,14 +462,12 @@ class ProgressBarThread(Thread):
 
 
 class DfuCommandHandler:
-    def _abort(self, ex, bar_thread=None):
-        EXCEPTION_MESSAGE = 'Reset MCU and try again.'
-
+    def _abort(self, bar_thread=None):
         if bar_thread:
             bar_thread.update(-1)
             bar_thread.join()
 
-        print(f'Error: {ex}', EXCEPTION_MESSAGE, sep='\n')
+        print('An Error occurred Reset MCU and try again.')
 
     def get_id(self, dfu, args):
         print('MCU ID: 0x{}'.format(dfu.get_id().hex()))
@@ -499,9 +494,9 @@ class DfuCommandHandler:
         try:
             dfu.erase(int(args.address, 0), int(args.size, 0),
                       mem_map, bar_thread.update)
-        except DfuException as ex:
-            self._abort(ex, bar_thread)
-            return
+        except DfuException:
+            self._abort(bar_thread)
+            raise
 
         bar_thread.join()
 
@@ -510,9 +505,14 @@ class DfuCommandHandler:
 
         bar_thread = ProgressBarThread()
 
-        with open(args.file, 'wb') as dump:
-            dump.write(dfu.read(int(args.address, 0), int(args.size, 0),
-                                bar_thread.update))
+        try:
+            with open(args.file, 'wb') as dump:
+                dump.write(dfu.read(int(args.address, 0), int(args.size, 0),
+                                    bar_thread.update))
+        except DfuException:
+            self._abort(bar_thread)
+            raise
+
         bar_thread.join()
 
     def load(self, dfu, args):
@@ -537,9 +537,9 @@ class DfuCommandHandler:
             try:
                 dfu.erase(int(args.address, 0), erase_size, mem_map,
                           bar_thread.update)
-            except DfuException as ex:
-                self._abort(ex, bar_thread)
-                return
+            except DfuException:
+                self._abort(bar_thread)
+                raise
 
             bar_thread.join()
 
@@ -549,9 +549,9 @@ class DfuCommandHandler:
 
         try:
             dfu.write(int(args.address, 0), firmware, bar_thread.update)
-        except DfuException as ex:
-            self._abort(ex, bar_thread)
-            return
+        except DfuException:
+            self._abort(bar_thread)
+            raise
 
         bar_thread.join()
 
@@ -562,9 +562,9 @@ class DfuCommandHandler:
         try:
             dump = dfu.read(int(args.address, 0), len(firmware),
                             bar_thread.update)
-        except DfuException as ex:
-            self._abort(ex, bar_thread)
-            return
+        except DfuException:
+            self._abort(bar_thread)
+            raise
 
         bar_thread.join()
 
@@ -578,9 +578,9 @@ class DfuCommandHandler:
 
             try:
                 dfu.go(int(args.address, 0))
-            except DfuException as ex:
-                self._abort(ex)
-                return
+            except DfuException:
+                self._abort()
+                raise
 
 
 if __name__ == '__main__':
