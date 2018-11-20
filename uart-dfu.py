@@ -100,7 +100,7 @@ class DfuCommandHandler:
 
     @staticmethod
     def get_id(dfu, args):
-        print('MCU ID: 0x{}'.format(dfu.get_id().hex()))
+        print('MCU ID: 0x{}'.format(dfu.id.hex()))
 
     @staticmethod
     def run(dfu, args):
@@ -110,7 +110,7 @@ class DfuCommandHandler:
 
     def erase(self, dfu, args):
         if args.memory_map:
-            with open(args.memory_map, 'r') as map_file:
+            with open(args.memory_map) as map_file:
                 mem_map = json.load(map_file)
         else:
             mem_map = None
@@ -152,7 +152,7 @@ class DfuCommandHandler:
 
         if args.erase:
             if args.memory_map:
-                with open(args.memory_map, 'r') as map_file:
+                with open(args.memory_map) as map_file:
                     mem_map = json.load(map_file)
 
                 erase_size = len(firmware)

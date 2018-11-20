@@ -92,6 +92,11 @@ class Stm32UartDfu:
 
         self._uart_dfu_init()
 
+        self._id = None
+        self._version = None
+        self._commands = None
+        self._read_protection_status = None
+
     def __delete__(self):
         if self._port_handle.isOpen():
             self.close()
@@ -202,18 +207,19 @@ class Stm32UartDfu:
             port_settings['timeout'] = self._DEFAULT_PARAMETERS['timeout']
             self._port_handle.applySettingsDict(port_settings)
 
-    # public methods
+    # dfu properties
 
-    def close(self):
-        self._port_handle.close()
-
+    @property
     @_retry(_RETRIES, 'get mcu id', _serial_flush)
-    def get_id(self):
+    def id(self):
         """
         Reads MCU ID.
         :return:
             bytes - product id
         """
+
+        if self._id:
+            return self._id
 
         self._send_command(self._COMMAND['get id'])
 
@@ -222,16 +228,22 @@ class Stm32UartDfu:
 
         self._check_acknowledge()
 
+        self._id = pid
+
         return pid
 
+    @property
     @_retry(_RETRIES, 'get dfu version', _serial_flush)
-    def get_version(self):
+    def version(self):
         """
         Reads dfu version and available commands.
         :return:
             version: bytes - dfu version
             commands: bytes - dfu available commands
         """
+
+        if self._version:
+            return self._version
 
         self._send_command(self._COMMAND['get version'])
 
@@ -242,16 +254,30 @@ class Stm32UartDfu:
 
         self._check_acknowledge()
 
-        return version, commands
+        self._version = version
+        self._commands = commands
 
+        return version
+
+    @property
+    def commands(self):
+        if not self._commands:
+            ver = self.version
+
+        return self._commands
+
+    @property
     @_retry(_RETRIES, 'get extended dfu version', _serial_flush)
-    def get_version_extended(self):
+    def read_protection_status(self):
         """
         Reads dfu version and read protection status bytes.
         :return:
             version: bytes - dfu version
             read_protection_status: bytes - read protection status
         """
+
+        if self._read_protection_status:
+            return self._read_protection_status
 
         self._send_command(self._COMMAND['get version and protection status'])
 
@@ -260,7 +286,14 @@ class Stm32UartDfu:
 
         self._check_acknowledge()
 
-        return version, read_protection_status
+        self._read_protection_status = read_protection_status
+
+        return read_protection_status
+
+    # public methods
+
+    def close(self):
+        self._port_handle.close()
 
     @_retry(_RETRIES, 'go', _serial_flush)
     def go(self, address):
