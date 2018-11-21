@@ -172,9 +172,9 @@ class Stm32UartDfu:
         self._check_acknowledge()
 
     @_retry(_RETRIES, 'read memory', _serial_flush)
-    def _read_memory_chunk(self, offset, size):
+    def _read_memory_chunk(self, address, size):
         self._send_command(self._COMMAND['read memory'])
-        self._set_address(offset)
+        self._set_address(address)
 
         self._port_handle.write(
             b''.join([(size - 1).to_bytes(1, 'big'), self._checksum(size - 1)]))
@@ -183,9 +183,9 @@ class Stm32UartDfu:
         return self._serial_read(size)
 
     @_retry(_RETRIES, 'write memory', _serial_flush)
-    def _write_memory_chunk(self, offset, data):
+    def _write_memory_chunk(self, address, data):
         self._send_command(self._COMMAND['write memory'])
-        self._set_address(offset)
+        self._set_address(address)
 
         self._serial_write((len(data) - 1).to_bytes(1, 'big'))
         self._serial_write(data)
