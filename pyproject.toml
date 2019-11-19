@@ -11,6 +11,15 @@ pyserial = "^3.4"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
+flake8 = "^3.7"
+flake8-quotes = "^2.1"
+flake8-broken-line = "^0.1.1"
+flake8-eradicate = "^0.2.3"
+flake8-pep3101 = "^1.2"
+flake8-import-order = "^0.18.1"
+flake8-isort = "^2.7"
+mccabe = "^0.6.1"
+pep8-naming = "^0.9.1"
 
 [build-system]
 requires = ["poetry>=0.12"]

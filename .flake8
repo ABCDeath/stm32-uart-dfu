@@ -1,0 +1,30 @@
+[flake8]
+# project ignores:
+# F812: list comprehension redefines ...
+# H101: Use TODO(NAME)
+# H202: assertRaises Exception too broad
+# H401: docstring should not start with a space
+# H403: multi line docstrings should end on a new line
+# H404: multi line docstring should start without a leading new line
+# H405: multi line docstring summary not separated with an empty line
+# W504: line break after binary operator
+# tests-specific ignores (can't fix -- that's how pytest works):
+# F811: redefinition of unused
+# F401: unused imports
+# S001: modulo formatter (%) # TODO: ignore until fix released
+
+ignore = F812,H101,H202,H405,I002,C101,W504,S001
+exclude =
+    .DS_Store,
+    .idea,
+    *.egg-info,
+    .pytest_cache,
+    __pycache__,
+    .git,
+    memory_map
+
+max-line-length = 80
+max-complexity = 10
+count = True
+benchmark = True
+disable-noqa = True
