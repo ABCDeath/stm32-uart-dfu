@@ -1,0 +1,12 @@
+# macOS meta
+.DS_Store
+# PyCharm project files
+.idea/
+# poetry package files
+*.egg-info/
+# pytest cache files
+*.pytest_cache
+# python cache
+*__pycache__
+# environment variables
+.env
