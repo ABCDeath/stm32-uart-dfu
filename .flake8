@@ -14,6 +14,9 @@
 # S001: modulo formatter (%) # TODO: ignore until fix released
 
 ignore = F812,H101,H202,H405,I002,C101,W504,S001
+per-file-ignores =
+    tests/*:F401,F811
+    uart-dfu.py:C901
 exclude =
     .DS_Store,
     .idea,

@@ -16,22 +16,22 @@ Available dfu operations:
  - dump: dump specified size of memory from address to a file
  - load: load binary file to memory at address.
 
-### For available commands:
+#### To get all available commands:
 ```
 > python3 uart-dfu.py --help
 ```  
 
-### For specific command help:
+#### To get specific command help:
 ```
 > python3 uart-dfu.py load --help
 ```  
 
-### Example:
+#### Example:
 ```
 > python3 uart-dfu.py --port /dev/ttyUSB0 load --file firmware.bin --erase -m map.json
 ```  
 
-### Memory map file:
+#### Memory map file:
 Memory map file contains mcu's flash memory sectors information (address, size).
 Table with flash memory organization can be found in reference manual in
 'embedded flash memory' section.  

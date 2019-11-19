@@ -38,7 +38,7 @@ def test_commands(dfu):
     assert b'\x00\x01\x02\x11\x21\x31\x44' in dfu.commands
 
 
-@pytest.mark.parametrize("address,size", [
+@pytest.mark.parametrize('address,size', [
     (0x8000040, 76543),
     (0x8008080, 96478),
 ])

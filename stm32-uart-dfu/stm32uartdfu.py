@@ -1,7 +1,7 @@
 from collections import Sequence
 from functools import reduce, wraps
 from operator import xor
-from typing import Dict, Callable, List, NoReturn, Union
+from typing import Callable, Dict, List, NoReturn, Union
 
 import serial
 
@@ -244,7 +244,7 @@ class Stm32UartDfu:
     @property
     def commands(self) -> bytes:
         if not self._commands:
-            ver = self.version
+            _ = self.version
 
         return self._commands
 
