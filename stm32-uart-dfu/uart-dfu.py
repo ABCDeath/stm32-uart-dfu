@@ -3,8 +3,10 @@ import json
 import time
 import zlib
 from threading import Thread
+from typing import NoReturn
 
-from stm32uartdfu import Stm32UartDfu, DfuException
+from .exceptions import DfuException
+from .stm32uartdfu import Stm32UartDfu
 
 
 class ProgressBar:
@@ -17,13 +19,13 @@ class ProgressBar:
         self._bar_len = 0
         self._reverse_direction = False
 
-    def _complete_len(self, progress):
+    def _complete_len(self, progress: int) -> int:
         return int(self._BAR_MAX_LEN * progress / 100)
 
-    def _incomplete_len(self, progress):
+    def _incomplete_len(self, progress: int) -> int:
         return self._BAR_MAX_LEN - self._complete_len(progress)
 
-    def _print(self, progress=None):
+    def _print(self, progress: int = None) -> NoReturn:
         if progress == -1:
             print(f'\r[{"-"*self._BAR_MAX_LEN}] failed.')
         elif progress == 100:
@@ -41,10 +43,10 @@ class ProgressBar:
                     f'{" "*self._incomplete_len(progress)}] {progress}%',
                     end='')
 
-    def is_endless(self):
+    def is_endless(self) -> bool:
         return self._endless
 
-    def update(self, progress=None):
+    def update(self, progress: int = None) -> NoReturn:
         if self._endless:
             if self._reverse_direction:
                 if self._position > 0:
@@ -72,26 +74,26 @@ class ProgressBar:
 class ProgressBarThread(Thread):
     _WAKE_PERIOD = 0.2
 
-    def __init__(self, endless=False):
+    def __init__(self, endless: bool = False):
         super().__init__(target=self._run)
         self._bar = ProgressBar(endless)
         self._progress = None if endless else 0
         super().start()
 
-    def _run(self):
+    def _run(self) -> NoReturn:
         while True:
             self._bar.update(self._progress)
             if self._progress == 100 or self._progress == -1:
                 break
             time.sleep(self._WAKE_PERIOD)
 
-    def update(self, progress):
+    def update(self, progress: int) -> NoReturn:
         self._progress = progress
 
 
 class DfuCommandHandler:
     @staticmethod
-    def _abort(bar_thread=None):
+    def _abort(bar_thread: ProgressBarThread = None) -> NoReturn:
         if bar_thread:
             bar_thread.update(-1)
             bar_thread.join()
@@ -99,16 +101,16 @@ class DfuCommandHandler:
         print('An Error occurred Reset MCU and try again.')
 
     @staticmethod
-    def get_id(dfu, args):
+    def get_id(dfu: Stm32UartDfu, args: argparse.Namespace) -> NoReturn:
         print('MCU ID: 0x{}'.format(dfu.id.hex()))
 
     @staticmethod
-    def run(dfu, args):
+    def run(dfu: Stm32UartDfu, args: argparse.Namespace) -> NoReturn:
         print(f'MCU will be running from {args.address}.')
 
         dfu.go(int(args.address, 0))
 
-    def erase(self, dfu, args):
+    def erase(self, dfu: Stm32UartDfu, args: argparse.Namespace) -> NoReturn:
         if args.memory_map:
             with open(args.memory_map) as map_file:
                 mem_map = json.load(map_file)
@@ -131,22 +133,23 @@ class DfuCommandHandler:
 
         bar_thread.join()
 
-    def dump(self, dfu, args):
+    def dump(self, dfu: Stm32UartDfu, args: argparse.Namespace) -> NoReturn:
         print(f'Dumping {args.size} bytes from {args.address}...')
 
         bar_thread = ProgressBarThread()
 
         try:
             with open(args.file, 'wb') as dump:
-                dump.write(dfu.read(int(args.address, 0), int(args.size, 0),
-                                    bar_thread.update))
+                dump.write(
+                    dfu.read(int(args.address, 0), int(args.size, 0),
+                             bar_thread.update))
         except DfuException:
             self._abort(bar_thread)
             raise
 
         bar_thread.join()
 
-    def load(self, dfu, args):
+    def load(self, dfu: Stm32UartDfu, args: argparse.Namespace) -> NoReturn:
         with open(args.file, 'rb') as firmware_file:
             firmware = firmware_file.read()
 

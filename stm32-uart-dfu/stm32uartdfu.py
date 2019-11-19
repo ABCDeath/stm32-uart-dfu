@@ -1,47 +1,30 @@
-import collections
-from functools import reduce
+from collections import Sequence
+from functools import reduce, wraps
+from operator import xor
+from typing import Dict, Callable, List, NoReturn, Union
 
 import serial
 
-
-class DfuException(Exception):
-    pass
+from . import exceptions
 
 
-class DfuAcknowledgeException(DfuException):
-    """Dfu exception class for any acknowledgement issues."""
-
-    def __init__(self, answer):
-        super().__init__(f'Acknowledge error (dfu answer: {answer}')
-
-
-class DfuSerialIOException(DfuException, serial.SerialException):
-    """
-    Dfu exception for serial io issues
-    like tried to write n bytes, m<n written instead.
-    """
-
-    def __init__(self, expected, actual):
-        super().__init__(f'Serial IO error: tried to transfer '
-                         f'{expected}, {actual} was done.')
-
-
-def _retry(retry_num=0, action='', exc_call=None):
-    def decorator(func):
+def _retry(retry_num: int = 0, action: str = '', exc_call: Callable = None):
+    def decorator(func: Callable):
+        @wraps(func)
         def retry_wrapper(*args, **kwargs):
             for current_retry in range(retry_num):
                 try:
                     ret = func(*args, **kwargs)
-                except DfuException as ex:
+                except exceptions.DfuException as ex:
                     if exc_call:
                         exc_call(args[0])
                     last_caught = ex
                 else:
                     return ret
             else:
-                raise DfuException(
-                    f'Error: {action} '
-                    f'failed after {retry_num} retries.') from last_caught
+                raise exceptions.DfuException(
+                    'Error: {} failed after {} retries.'.format(
+                        action, retry_num)) from last_caught
 
         return retry_wrapper
 
@@ -104,65 +87,67 @@ class Stm32UartDfu:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, *_, **__):
         if self._port_handle.isOpen():
             self.close()
 
     @staticmethod
-    def _checksum(data, init=0):
-        if isinstance(data, collections.Sequence):
-            val = reduce(lambda accum, current: accum ^ current, data, init)
+    def _checksum(data: Union[int, Sequence], init: int = 0) -> bytes:
+        if isinstance(data, Sequence):
+            val = reduce(xor, data, init)
         else:
             val = 0xff - data
 
         return (0xff & val).to_bytes(1, 'big')
 
-    def _check_acknowledge(self):
+    def _check_acknowledge(self) -> bool:
         """
-        Reads dfu answer and checks is it acknowledge byte or not.
-        :return:
-            bool - True if acknowledge byte was received, otherwise False.
+        Read dfu answer and checks if it is an acknowledge byte.
+        :return: True if acknowledge byte was received.
+        :raise: DfuAcknowledgeException if device did not respond with ack.
         """
 
         response = self._port_handle.read()
         if not response or response != self._RESPONSE['ack']:
-            raise DfuAcknowledgeException(response)
+            raise exceptions.DfuAcknowledgeException(response)
 
-    def _serial_write(self, data):
+        return True
+
+    def _serial_write(self, data: bytes) -> NoReturn:
         done = self._port_handle.write(data)
         if done != len(data):
-            raise DfuSerialIOException(len(data), done)
+            raise exceptions.DfuSerialIOException(len(data), done)
 
-    def _serial_read(self, amount=0):
+    def _serial_read(self, amount: int = 0) -> bytes:
         data = (self._port_handle.read(amount) if amount
                 else self._port_handle.read())
         if amount and len(data) != amount:
-            raise DfuSerialIOException(amount, len(data))
+            raise exceptions.DfuSerialIOException(amount, len(data))
 
         return data
 
-    def _serial_flush(self):
+    def _serial_flush(self) -> NoReturn:
         self._port_handle.flushInput()
         self._port_handle.flushOutput()
 
     @_retry(_RETRIES, 'DFU init', _serial_flush)
-    def _uart_dfu_init(self):
-        """Sends uart dfu init byte and waits for acknowledge answer."""
+    def _uart_dfu_init(self) -> NoReturn:
+        """Send uart dfu init byte and waits for acknowledge answer."""
 
         self._serial_write(0x7f.to_bytes(1, 'big'))
         self._check_acknowledge()
 
     @_retry(_RETRIES, 'send dfu command', _serial_flush)
-    def _send_command(self, command):
-        """Sends command with checksum, waits for acknowledge."""
+    def _send_command(self, command: int) -> NoReturn:
+        """Send command with checksum, waits for acknowledge."""
 
         self._serial_write(
             b''.join([command.to_bytes(1, 'big'), self._checksum(command)]))
         self._check_acknowledge()
 
-    def _set_address(self, address):
+    def _set_address(self, address: int) -> NoReturn:
         """
-        Sends address with checksum for read, write and erase commands.
+        Send address with checksum for read, write and erase commands.
         :param address: int
         """
 
@@ -172,7 +157,7 @@ class Stm32UartDfu:
         self._check_acknowledge()
 
     @_retry(_RETRIES, 'read memory', _serial_flush)
-    def _read_memory_chunk(self, address, size):
+    def _read_memory_chunk(self, address: int, size: int) -> bytes:
         self._send_command(self._COMMAND['read memory'])
         self._set_address(address)
 
@@ -183,7 +168,7 @@ class Stm32UartDfu:
         return self._serial_read(size)
 
     @_retry(_RETRIES, 'write memory', _serial_flush)
-    def _write_memory_chunk(self, address, data):
+    def _write_memory_chunk(self, address: int, data: bytes) -> NoReturn:
         self._send_command(self._COMMAND['write memory'])
         self._set_address(address)
 
@@ -194,7 +179,7 @@ class Stm32UartDfu:
         self._check_acknowledge()
 
     @_retry(_RETRIES, 'erase', _serial_flush)
-    def _perform_erase(self, parameters):
+    def _perform_erase(self, parameters: bytes) -> NoReturn:
         self._serial_write(parameters)
 
         port_settings = self._port_handle.getSettingsDict()
@@ -211,11 +196,10 @@ class Stm32UartDfu:
 
     @property
     @_retry(_RETRIES, 'get mcu id', _serial_flush)
-    def id(self):
+    def id(self) -> bytes:
         """
-        Reads MCU ID.
-        :return:
-            bytes - product id
+        Read MCU ID.
+        :return: product id
         """
 
         if self._id:
@@ -234,12 +218,10 @@ class Stm32UartDfu:
 
     @property
     @_retry(_RETRIES, 'get dfu version', _serial_flush)
-    def version(self):
+    def version(self) -> bytes:
         """
-        Reads dfu version and available commands.
-        :return:
-            version: bytes - dfu version
-            commands: bytes - dfu available commands
+        Read dfu version and available commands.
+        :return: version: dfu version
         """
 
         if self._version:
@@ -260,7 +242,7 @@ class Stm32UartDfu:
         return version
 
     @property
-    def commands(self):
+    def commands(self) -> bytes:
         if not self._commands:
             ver = self.version
 
@@ -268,12 +250,10 @@ class Stm32UartDfu:
 
     @property
     @_retry(_RETRIES, 'get extended dfu version', _serial_flush)
-    def read_protection_status(self):
+    def read_protection_status(self) -> bytes:
         """
-        Reads dfu version and read protection status bytes.
-        :return:
-            version: bytes - dfu version
-            read_protection_status: bytes - read protection status
+        Read dfu version and read protection status bytes.
+        :return: read_protection_status: read protection status
         """
 
         if self._read_protection_status:
@@ -291,34 +271,36 @@ class Stm32UartDfu:
 
     # public methods
 
-    def close(self):
+    def close(self) -> NoReturn:
         self._port_handle.close()
 
     @_retry(_RETRIES, 'go', _serial_flush)
-    def go(self, address):
+    def go(self, address: int) -> NoReturn:
         """
-        Runs MCU from memory defined by address parameter.
-        :param address: int - address to jump
+        Run MCU from memory defined by address parameter.
+        :param address: address to jump
         """
 
         self._send_command(self._COMMAND['go'])
         self._set_address(address)
 
-    def read(self, address=None, size=None, progress_update=lambda *args: None,
-             *, memory_map=None):
+    def read(self, address: int = None, size: int = None,
+             progress_update: Callable = lambda *_: None, *,
+             memory_map: List[Dict[str, str]] = None) -> bytes:
         """
-        Reads %size% bytes of memory from %address%.
-        :param address: int - address to start reading
-        :param size: int - size of memory to be dumped
-        :param progress_update: function - function to update progressbar
-            default: None
-        :return: bytearray - memory dump
+        Read %size% bytes of memory from %address%.
+        :param address: address to start reading
+        :param size: size of memory to be dumped
+        :param progress_update: callable to update progressbar, default: None
+        :param memory_map: {'address': 'value', 'size': 'value'} -
+            mcu memory sectors addresses with size
+        :return: memory dump
         """
 
         address = address if address else int(memory_map[0]['address'], 0)
-        size = size if size else (int(memory_map[-1]['address'], 0) +
-                                  int(memory_map[-1]['size'], 0) -
-                                  address)
+        if not size:
+            size = (int(memory_map[-1]['address'], 0) +
+                    int(memory_map[-1]['size'], 0) - address)
 
         size_remain = size
         data = b''
@@ -337,14 +319,9 @@ class Stm32UartDfu:
 
         return data
 
-    def write(self, address, data, progress_update=lambda *args: None):
-        """
-        Loads %data% to mcu memory at %address%.
-        :param address: int
-        :param data: bytes or bytearray
-        :param progress_update: function - function to update progressbar
-            default: None
-        """
+    def write(self, address: int, data: Union[bytes, bytearray],
+              progress_update: Callable = lambda *_: None):
+        """Loads %data% to mcu memory at %address%."""
         size_remain = len(data)
 
         while size_remain:
@@ -360,17 +337,17 @@ class Stm32UartDfu:
 
         progress_update(100)
 
-    def erase(self, address=None, size=None, memory_map=None,
-              progress_update=lambda *args: None):
+    def erase(self, address: int = None, size: int = None,
+              memory_map: List[Dict[str, str]] = None,
+              progress_update: Callable = lambda *_: None):
         """
         Erases mcu memory. Memory can be erased only by pages,
         so the whole pages containing start and stop addresses will be erased.
-        :param address: int - erase starting address
-        :param size: int - size of memory to be erased
-        :param memory_map: list of dicts {address: value, size: value} -
+        :param address: erase starting address
+        :param size: size of memory to be erased
+        :param memory_map: {'address': 'value', 'size': 'value'} -
             mcu memory sectors addresses with size
-        :param progress_update: function - function to update progressbar
-            default: None
+        :param progress_update: Callable to update progressbar, default: None
         """
 
         if not size and not address:
