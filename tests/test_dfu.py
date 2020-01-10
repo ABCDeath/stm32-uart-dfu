@@ -4,9 +4,9 @@ import random
 import pytest
 
 
-@pytest.fixture(scope='module', params=['/dev/ttyUSB0'])
+@pytest.fixture(scope='module', params=['/dev/tty.usbserial-A9E59BZN'])
 def dfu(request):
-    import stm32uartdfu
+    from stm32_uart_dfu import stm32uartdfu
     return stm32uartdfu.Stm32UartDfu(request.param)
 
 

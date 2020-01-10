@@ -1,16 +1,19 @@
 # stm32-uart-dfu
-Simple command-line tool that works with stm32 microcontrollers
-uart bootloader. Requires Python 3.6.
+Simple command-line tool that works with stm32 microcontrollers uart bootloader. Requires Python 3.6.
 
 ## Installing dependencies and usage:
-To install python and dependencies you can use [pyenv](https://github.com/pyenv/pyenv) and [poetry](https://poetry.eustace.io/) ([pyenv-virtualenv plugin](https://github.com/pyenv/pyenv-virtualenv) for virtual environment). Or, alternatively, just run:
+To install python and dependencies you can use [pyenv](https://github.com/pyenv/pyenv) and [poetry](https://poetry.eustace.io/) ([pyenv-virtualenv plugin](https://github.com/pyenv/pyenv-virtualenv) for virtual environment):
 ```bash
-piip install -r requirements.txt
+poetry install
+```  
+Or, alternatively, just run:
+```bash
+pip install -r requirements.txt
 ```  
 
 ### Usage
 Available dfu operations:
- - get id: prints mcu id (2 bytes)
+ - id: prints mcu id (2 bytes)
  - run: MCU jumps at specified address
  - erase: erase specified size of memory at address
  - dump: dump specified size of memory from address to a file
@@ -18,24 +21,23 @@ Available dfu operations:
 
 #### To get all available commands:
 ```
-> python3 uart-dfu.py --help
+python3 uart-dfu.py --help
 ```  
 
 #### To get specific command help:
 ```
-> python3 uart-dfu.py load --help
+python3 uart-dfu.py load --help
 ```  
 
 #### Example:
 ```
-> python3 uart-dfu.py --port /dev/ttyUSB0 load --file firmware.bin --erase -m map.json
+python3 uart-dfu.py --port /dev/ttyUSB0 load --file firmware.bin --erase -m map.json
 ```  
 
 #### Memory map file:
 Memory map file contains mcu's flash memory sectors information (address, size).
-Table with flash memory organization can be found in reference manual in
-'embedded flash memory' section.  
-json file with memory map example for stm32f407 can be found in memory_map directory.
+Table with flash memory organization can be found in reference manual in `embedded flash memory` section. 
+Json file with memory map example for stm32f407 can be found in memory_map directory.
 Basically this file contains list of dicts like that:
 ```json
 [

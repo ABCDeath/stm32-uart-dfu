@@ -5,8 +5,8 @@ import zlib
 from threading import Thread
 from typing import NoReturn
 
-from .exceptions import DfuException
-from .stm32uartdfu import Stm32UartDfu
+from exceptions import DfuException
+from stm32uartdfu import Stm32UartDfu
 
 
 class ProgressBar:
