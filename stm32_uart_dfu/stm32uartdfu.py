@@ -5,7 +5,7 @@ from typing import Callable, Dict, List, NoReturn, Union
 
 import serial
 
-import exceptions
+from . import exceptions
 
 
 def _retry(retry_num: int = 0, action: str = '', exc_call: Callable = None):

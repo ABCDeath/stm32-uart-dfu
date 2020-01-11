@@ -1,5 +1,5 @@
 # stm32-uart-dfu
-Simple command-line tool that works with stm32 microcontrollers uart bootloader. Requires Python 3.6.
+Simple command-line tool that works with stm32 microcontrollers uart bootloader.
 
 ## Installing dependencies and usage:
 To install python and dependencies you can use [pyenv](https://github.com/pyenv/pyenv) and [poetry](https://poetry.eustace.io/) ([pyenv-virtualenv plugin](https://github.com/pyenv/pyenv-virtualenv) for virtual environment):
@@ -20,18 +20,18 @@ Available dfu operations:
  - load: load binary file to memory at address.
 
 #### To get all available commands:
-```
-python3 uart-dfu.py --help
+```bash
+python3 -m stm32_uart_dfu --help
 ```  
 
 #### To get specific command help:
-```
-python3 uart-dfu.py load --help
+```bash
+python3 -m stm32_uart_dfu load --help
 ```  
 
 #### Example:
-```
-python3 uart-dfu.py --port /dev/ttyUSB0 load --file firmware.bin --erase -m map.json
+```bash
+python3 -m stm32_uart_dfu --port /dev/ttyUSB0 load --file firmware.bin --erase -m map.json
 ```  
 
 #### Memory map file:
