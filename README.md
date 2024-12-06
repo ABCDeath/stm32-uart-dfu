@@ -21,17 +21,17 @@ Available dfu operations:
 
 #### To get all available commands:
 ```bash
-python3 -m stm32_uart_dfu --help
+python -m stm32_uart_dfu --help
 ```  
 
 #### To get specific command help:
 ```bash
-python3 -m stm32_uart_dfu load --help
+python -m stm32_uart_dfu load --help
 ```  
 
 #### Example:
 ```bash
-python3 -m stm32_uart_dfu --port /dev/ttyUSB0 load --file firmware.bin --erase -m map.json
+python -m stm32_uart_dfu --port /dev/ttyUSB0 load --file firmware.bin --erase -m map.json
 ```  
 
 #### Memory map file:

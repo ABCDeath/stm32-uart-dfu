@@ -7,6 +7,7 @@ import pytest
 @pytest.fixture(scope='module', params=['/dev/tty.usbserial-A9E59BZN'])
 def dfu(request):
     from stm32_uart_dfu import stm32uartdfu
+
     return stm32uartdfu.Stm32UartDfu(request.param)
 
 
@@ -38,13 +39,17 @@ def test_commands(dfu):
     assert b'\x00\x01\x02\x11\x21\x31\x44' in dfu.commands
 
 
-@pytest.mark.parametrize('address,size', [
-    (0x8000040, 76543),
-    (0x8008080, 96478),
-])
+@pytest.mark.parametrize(
+    'address,size', [
+        (0x8000040, 76543),
+        (0x8008080, 96478),
+    ]
+)
 def test_load_random(dfu, memory_map, address, size):
-    data = b''.join([random.randint(0, 255).to_bytes(1, 'big')
-                     for _ in range(size)])
+    data = b''.join(
+        [random.randint(0, 255).to_bytes(1, 'big')
+            for _ in range(size)]
+    )
     dfu.erase(address, size, memory_map)
     dfu.write(address, data)
     assert dfu.read(address, len(data)) == data
