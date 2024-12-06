@@ -27,21 +27,23 @@ class ProgressBar:
 
     def _print(self, progress: int = None) -> NoReturn:
         if progress == -1:
-            print(f'\r[{"-"*self._BAR_MAX_LEN}] failed.')
+            print(f'\r[{"-" * self._BAR_MAX_LEN}] failed.')
         elif progress == 100:
-            print(f'\r[{"█"*self._BAR_MAX_LEN}] done.')
+            print(f'\r[{"█" * self._BAR_MAX_LEN}] done.')
         else:
             if self._endless:
                 tail = self._BAR_MAX_LEN - self._bar_len - self._position
                 print(
-                    f'\r[{" "*self._position}{"█"*self._bar_len}'
-                    f'{" "*tail}] ...',
-                    end='')
+                    f'\r[{" " * self._position}{"█" * self._bar_len}'
+                    f'{" " * tail}] ...',
+                    end=''
+                )
             else:
                 print(
-                    f'\r[{"█"*self._complete_len(progress)}'
-                    f'{" "*self._incomplete_len(progress)}] {progress}%',
-                    end='')
+                    f'\r[{"█" * self._complete_len(progress)}'
+                    f'{" " * self._incomplete_len(progress)}] {progress}%',
+                    end=''
+                )
 
     def is_endless(self) -> bool:
         return self._endless
@@ -125,8 +127,10 @@ class DfuCommandHandler:
         bar_thread = ProgressBarThread(endless=True)
 
         try:
-            dfu.erase(int(args.address, 0), int(args.size, 0),
-                      mem_map, bar_thread.update)
+            dfu.erase(
+                int(args.address, 0), int(args.size, 0),
+                mem_map, bar_thread.update
+            )
         except DfuException:
             self._abort(bar_thread)
             raise
@@ -141,8 +145,11 @@ class DfuCommandHandler:
         try:
             with open(args.file, 'wb') as dump:
                 dump.write(
-                    dfu.read(int(args.address, 0), int(args.size, 0),
-                             bar_thread.update))
+                    dfu.read(
+                        int(args.address, 0), int(args.size, 0),
+                        bar_thread.update
+                    )
+                )
         except DfuException:
             self._abort(bar_thread)
             raise
@@ -169,8 +176,10 @@ class DfuCommandHandler:
             bar_thread = ProgressBarThread(endless=True)
 
             try:
-                dfu.erase(int(args.address, 0), erase_size, mem_map,
-                          bar_thread.update)
+                dfu.erase(
+                    int(args.address, 0), erase_size, mem_map,
+                    bar_thread.update
+                )
             except DfuException:
                 self._abort(bar_thread)
                 raise
@@ -194,8 +203,10 @@ class DfuCommandHandler:
         bar_thread = ProgressBarThread()
 
         try:
-            dump = dfu.read(int(args.address, 0), len(firmware),
-                            bar_thread.update)
+            dump = dfu.read(
+                int(args.address, 0), len(firmware),
+                bar_thread.update
+            )
         except DfuException:
             self._abort(bar_thread)
             raise

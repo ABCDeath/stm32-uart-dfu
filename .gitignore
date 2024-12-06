@@ -10,3 +10,4 @@
 *__pycache__
 # environment variables
 .env
+.python-version

@@ -20,4 +20,5 @@ class DfuSerialIOException(DfuException, SerialException):
 
     def __init__(self, expected: int, actual: int):
         super().__init__(
-            f'Serial IO error: tried to transfer {expected}, {actual} done.')
+            f'Serial IO error: tried to transfer {expected}, {actual} done.'
+        )

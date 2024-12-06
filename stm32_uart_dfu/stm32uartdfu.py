@@ -24,7 +24,9 @@ def _retry(retry_num: int = 0, action: str = '', exc_call: Callable = None):
             else:
                 raise exceptions.DfuException(
                     'Error: {} failed after {} retries.'.format(
-                        action, retry_num)) from last_caught
+                        action, retry_num
+                    )
+                ) from last_caught
 
         return retry_wrapper
 
@@ -68,7 +70,8 @@ class Stm32UartDfu:
         self._port_handle = serial.Serial(
             port=port, baudrate=self._DEFAULT_PARAMETERS['baudrate'],
             parity=self._DEFAULT_PARAMETERS['parity'],
-            timeout=self._DEFAULT_PARAMETERS['timeout'])
+            timeout=self._DEFAULT_PARAMETERS['timeout']
+        )
 
         if not self._port_handle.isOpen():
             raise serial.SerialException("Can't open serial port.")
@@ -142,7 +145,8 @@ class Stm32UartDfu:
         """Send command with checksum, waits for acknowledge."""
 
         self._serial_write(
-            b''.join([command.to_bytes(1, 'big'), self._checksum(command)]))
+            b''.join([command.to_bytes(1, 'big'), self._checksum(command)])
+        )
         self._check_acknowledge()
 
     def _set_address(self, address: int) -> NoReturn:
@@ -152,8 +156,11 @@ class Stm32UartDfu:
         """
 
         self._serial_write(
-            b''.join([address.to_bytes(4, 'big'),
-                      self._checksum(address.to_bytes(4, 'big'))]))
+            b''.join(
+                [address.to_bytes(4, 'big'),
+                    self._checksum(address.to_bytes(4, 'big'))]
+            )
+        )
         self._check_acknowledge()
 
     @_retry(_RETRIES, 'read memory', _serial_flush)
@@ -162,7 +169,8 @@ class Stm32UartDfu:
         self._set_address(address)
 
         self._port_handle.write(
-            b''.join([(size - 1).to_bytes(1, 'big'), self._checksum(size - 1)]))
+            b''.join([(size - 1).to_bytes(1, 'big'), self._checksum(size - 1)])
+        )
         self._check_acknowledge()
 
         return self._serial_read(size)
@@ -284,9 +292,11 @@ class Stm32UartDfu:
         self._send_command(self._COMMAND['go'])
         self._set_address(address)
 
-    def read(self, address: int = None, size: int = None,
-             progress_update: Callable = lambda *_: None, *,
-             memory_map: List[Dict[str, str]] = None) -> bytes:
+    def read(
+        self, address: int = None, size: int = None,
+        progress_update: Callable = lambda *_: None, *,
+        memory_map: List[Dict[str, str]] = None
+    ) -> bytes:
         """
         Read %size% bytes of memory from %address%.
         :param address: address to start reading
@@ -319,8 +329,10 @@ class Stm32UartDfu:
 
         return data
 
-    def write(self, address: int, data: Union[bytes, bytearray],
-              progress_update: Callable = lambda *_: None):
+    def write(
+        self, address: int, data: Union[bytes, bytearray],
+        progress_update: Callable = lambda *_: None
+    ):
         """Loads %data% to mcu memory at %address%."""
         size_remain = len(data)
 
@@ -337,9 +349,11 @@ class Stm32UartDfu:
 
         progress_update(100)
 
-    def erase(self, address: int = None, size: int = None,
-              memory_map: List[Dict[str, str]] = None,
-              progress_update: Callable = lambda *_: None):
+    def erase(
+        self, address: int = None, size: int = None,
+        memory_map: List[Dict[str, str]] = None,
+        progress_update: Callable = lambda *_: None
+    ):
         """
         Erases mcu memory. Memory can be erased only by pages,
         so the whole pages containing start and stop addresses will be erased.
@@ -356,7 +370,8 @@ class Stm32UartDfu:
         else:
             if not memory_map:
                 raise AttributeError(
-                    "Can't erase specified size of memory without memory map.")
+                    "Can't erase specified size of memory without memory map."
+                )
 
             try:
                 start = [
@@ -373,7 +388,8 @@ class Stm32UartDfu:
             except IndexError:
                 raise AttributeError(
                     'Erase memory failed: can not find boundaries '
-                    'for specified size and memory map.')
+                    'for specified size and memory map.'
+                )
 
             sectors = [s.to_bytes(2, 'big') for s in range(start, end + 1)]
 
